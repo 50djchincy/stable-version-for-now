@@ -216,12 +216,12 @@ const DailyOps: React.FC = () => {
         <p className="text-slate-400 text-sm font-medium italic">Count denomination-by-denomination for total accuracy</p>
       </div>
 
-      {activeMenu === 'sales' && <SalesModal targetAccount={getAccountName(flowConfig.salesAccount)} current={activeShift.totalSales} onClose={()=>setActiveMenu(null)} onSave={(val)=>updateActiveShift({totalSales: val})} />}
-      {activeMenu === 'cards' && <CardsModal targetAccount={getAccountName(flowConfig.cardsAccount)} current={activeShift.cards} onClose={()=>setActiveMenu(null)} onSave={(val)=>updateActiveShift({cards: val})} />}
-      {activeMenu === 'hiking' && <HikingModal targetAccount={getAccountName(flowConfig.hikingAccount)} current={activeShift.hikingBar} onClose={()=>setActiveMenu(null)} onSave={(val)=>updateActiveShift({hikingBar: val})} />}
-      {activeMenu === 'fx' && <FXModal targetAccount={getAccountName(flowConfig.fxAccount)} current={activeShift.foreignCurrency} onClose={()=>setActiveMenu(null)} onSave={(val)=>updateActiveShift({foreignCurrency: val})} />}
-      {activeMenu === 'bills' && <BillsModal targetAccount={getAccountName(flowConfig.billsAccount)} current={activeShift.creditBills} customers={customers} onClose={()=>setActiveMenu(null)} onSave={(val)=>updateActiveShift({creditBills: val})} />}
-      {activeMenu === 'expenses' && <ExpensesModal targetAccount={getAccountName(flowConfig.cashAccount)} current={activeShift.expenses} onClose={()=>setActiveMenu(null)} onSave={(val)=>updateActiveShift({expenses: val})} />}
+      {activeMenu === 'sales' && <SalesModal targetAccount={getAccountName(flowConfig.salesAccount)} current={activeShift.totalSales} onClose={()=>setActiveMenu(null)} onSave={(val: any)=>updateActiveShift({totalSales: val})} />}
+      {activeMenu === 'cards' && <CardsModal targetAccount={getAccountName(flowConfig.cardsAccount)} current={activeShift.cards} onClose={()=>setActiveMenu(null)} onSave={(val: any)=>updateActiveShift({cards: val})} />}
+      {activeMenu === 'hiking' && <HikingModal targetAccount={getAccountName(flowConfig.hikingAccount)} current={activeShift.hikingBar} onClose={()=>setActiveMenu(null)} onSave={(val: any)=>updateActiveShift({hikingBar: val})} />}
+      {activeMenu === 'fx' && <FXModal targetAccount={getAccountName(flowConfig.fxAccount)} current={activeShift.foreignCurrency} onClose={()=>setActiveMenu(null)} onSave={(val: any)=>updateActiveShift({foreignCurrency: val})} />}
+      {activeMenu === 'bills' && <BillsModal targetAccount={getAccountName(flowConfig.billsAccount)} current={activeShift.creditBills} customers={customers} onClose={()=>setActiveMenu(null)} onSave={(val: any)=>updateActiveShift({creditBills: val})} />}
+      {activeMenu === 'expenses' && <ExpensesModal targetAccount={getAccountName(flowConfig.cashAccount)} current={activeShift.expenses} onClose={()=>setActiveMenu(null)} onSave={(val: any)=>updateActiveShift({expenses: val})} />}
       
       {showCalcModal && <CashCalcModal onClose={() => setShowCalcModal(false)} onFinalize={() => setShowCloseModal(true)} />}
       {showCloseModal && <CloseShiftModal activeShift={activeShift} isProcessing={isProcessing} onClose={() => setShowCloseModal(false)} onConfirm={handleFinalClose} />}

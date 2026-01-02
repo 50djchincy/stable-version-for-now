@@ -124,3 +124,24 @@ export interface Account {
   type: AccountType;
   createdAt: string;
 }
+// --- Portal Configuration Types ---
+
+export interface PortalConfig {
+  cardBills: {
+    lastSourceId: string;
+    lastDestId: string;
+    lastFeeId: string;
+  };
+  barSales: {
+    pendingAccountId: string;
+    cashDestId: string;
+    cardDestId: string;
+    serviceChargeId: string;
+    drinksCostId: string;
+  };
+  billsRec: {
+    sourceAccountId: string;
+    destAccount1Id: string;
+    destAccount2Id: string;
+  };
+}
