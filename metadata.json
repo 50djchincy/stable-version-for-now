@@ -1,0 +1,7 @@
+{
+  "name": "ERP 12",
+  "description": "working for now",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}
