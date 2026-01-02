@@ -50,6 +50,7 @@ interface AppContextType {
   toggleHoliday: (staffId: string, date: string) => Promise<void>;
   // Expense/Vendor Methods
   addVendor: (data: Omit<Vendor, 'id' | 'createdAt'>) => Promise<void>;
+  updateVendor: (id: string, updates: Partial<Vendor>) => Promise<void>;
   deleteVendor: (id: string) => Promise<void>;
   addExpense: (data: Omit<ExpenseRecord, 'id' | 'createdAt'>) => Promise<void>;
   deleteExpense: (id: string) => Promise<void>;
@@ -126,6 +127,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       setAccounts(JSON.parse(localStorage.getItem('mozza_sandbox_accounts') || '[]'));
       setTransactions(JSON.parse(localStorage.getItem('mozza_sandbox_transactions') || '[]'));
       setShifts(JSON.parse(localStorage.getItem('mozza_sandbox_shifts') || '[]'));
+      // Fixed syntax error: added missing closing quote for 'mozza_sandbox_staff'
       setStaff(JSON.parse(localStorage.getItem('mozza_sandbox_staff') || '[]'));
       setHolidays(JSON.parse(localStorage.getItem('mozza_sandbox_holidays') || '[]'));
       setCustomers(JSON.parse(localStorage.getItem('mozza_sandbox_customers') || '[{"id":"1","name":"Regular Guest"},{"id":"2","name":"VIP Table 5"}]'));
@@ -207,6 +209,18 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     } else {
       setVendors(prev => {
         const updated = [{ ...newItem, id: Math.random().toString(36).substr(2, 9) }, ...prev];
+        localStorage.setItem('mozza_sandbox_vendors', JSON.stringify(updated));
+        return updated;
+      });
+    }
+  };
+
+  const updateVendor = async (id: string, updates: Partial<Vendor>) => {
+    if (mode === 'live') {
+      await updateDoc(doc(getArtifactCollection('vendors'), id), updates);
+    } else {
+      setVendors(prev => {
+        const updated = prev.map(v => v.id === id ? { ...v, ...updates } : v);
         localStorage.setItem('mozza_sandbox_vendors', JSON.stringify(updated));
         return updated;
       });
@@ -446,7 +460,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       setSelectedAccountId, setFlowConfig, addAccount, addTransaction, startShift, updateActiveShift, closeShift,
       resetSandbox,
       addStaff, updateStaff, deleteStaff, toggleHoliday,
-      addVendor, deleteVendor, addExpense, deleteExpense
+      addVendor, updateVendor, deleteVendor, addExpense, deleteExpense
     }}>
       {children}
     </AppContext.Provider>

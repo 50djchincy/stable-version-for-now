@@ -24,9 +24,25 @@ import {
   Calendar,
   ArrowRight,
   Settings as SettingsIcon,
-  Loader2
+  Loader2,
+  PlusCircle,
+  ArrowDownCircle,
+  Star,
+  Snowflake,
+  ShoppingBag,
+  Flame,
+  Truck,
+  Package
 } from 'lucide-react';
 import { ShiftInjection, ShiftExpense, CreditBillEntry } from '../types';
+
+// --- DEFAULTS SYNCED WITH EXPENSES PAGE ---
+const DEFAULT_PRESETS = [
+  { id: 'p1', label: 'Ice Delivery', amount: 45.00, iconName: 'Snowflake', color: 'text-cyan-600', bg: 'bg-cyan-50', category: 'Inventory' },
+  { id: 'p2', label: 'Linen Service', amount: 120.00, iconName: 'ShoppingBag', color: 'text-purple-600', bg: 'bg-purple-50', category: 'Utilities' },
+  { id: 'p3', label: 'Gas Refill', amount: 85.50, iconName: 'Flame', color: 'text-red-600', bg: 'bg-red-50', category: 'Utilities' },
+  { id: 'p4', label: 'Produce', amount: 0, iconName: 'Truck', color: 'text-emerald-600', bg: 'bg-emerald-50', category: 'Inventory' },
+];
 
 const DailyOps: React.FC = () => {
   const { activeShift, shifts, customers, startShift, updateActiveShift, closeShift, flowConfig, accounts, setCurrentPage } = useApp();
@@ -43,7 +59,6 @@ const DailyOps: React.FC = () => {
   const isConfigComplete = Object.values(flowConfig).every(val => val !== '');
 
   // If no active shift is found, we show the "Start Shift" screen.
-  // This is the default state when the app boots or after a successful sweep.
   if (!activeShift) {
     return (
       <div className="flex flex-col items-center justify-center min-h-[70vh] space-y-8 animate-in fade-in slide-in-from-bottom-4">
@@ -67,6 +82,7 @@ const DailyOps: React.FC = () => {
             onClose={() => setShowOpenModal(false)} 
             lastActualCash={lastActualCash}
             onStart={startShift}
+            accounts={accounts}
           />
         )}
       </div>
@@ -123,8 +139,9 @@ const DailyOps: React.FC = () => {
         </div>
       )}
 
-      <div className="bg-white rounded-[2.5rem] p-8 shadow-sm border border-slate-100 flex flex-col md:flex-row md:items-center justify-between gap-6">
-        <div className="flex items-center gap-6">
+      {/* Main Header Card - Updated Design */}
+      <div className="bg-white rounded-[2.5rem] p-8 shadow-sm border border-slate-100 flex flex-col md:flex-row md:items-center justify-between gap-6 relative overflow-hidden">
+        <div className="flex items-center gap-6 z-10">
           <div className="w-16 h-16 bg-blue-600 rounded-[1.5rem] flex items-center justify-center text-white shadow-lg shadow-blue-100">
             <Zap size={32} />
           </div>
@@ -137,15 +154,14 @@ const DailyOps: React.FC = () => {
           </div>
         </div>
 
-        <div className="flex items-center gap-8 px-6 py-4 bg-slate-50 rounded-3xl">
-          <div>
-            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Expected Till</p>
-            <p className="text-2xl font-black text-blue-600">${activeShift.expectedCash.toLocaleString()}</p>
+        <div className="flex items-center gap-4 z-10">
+          <div className="px-6 py-4 bg-blue-50 rounded-3xl border border-blue-100">
+            <p className="text-[10px] font-black text-blue-400 uppercase tracking-widest text-center mb-1">Expected Till</p>
+            <p className="text-2xl font-black text-blue-600 text-center">${activeShift.expectedCash.toLocaleString()}</p>
           </div>
-          <div className="w-px h-8 bg-slate-200" />
-          <div>
-            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Cash Sales</p>
-            <p className="text-2xl font-black text-emerald-600">${cashSales.toLocaleString()}</p>
+          <div className="px-6 py-4 bg-slate-50 rounded-3xl border border-slate-100">
+            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest text-center mb-1">Cash Sales</p>
+            <p className="text-2xl font-black text-emerald-600 text-center">${cashSales.toLocaleString()}</p>
           </div>
         </div>
       </div>
@@ -213,19 +229,42 @@ const DailyOps: React.FC = () => {
   );
 };
 
-// ... Start Modal ...
-const ShiftStartModal = ({ onClose, lastActualCash, onStart }: any) => {
-  const [openingFloat, setOpeningFloat] = useState(lastActualCash);
+// --- HELPER COMPONENT ---
+const IconRenderer = ({ name, size = 10 }: { name: string, size?: number }) => {
+  switch(name) {
+    case 'Snowflake': return <Snowflake size={size} />;
+    case 'ShoppingBag': return <ShoppingBag size={size} />;
+    case 'Flame': return <Flame size={size} />;
+    case 'Truck': return <Truck size={size} />;
+    case 'Package': return <Package size={size} />;
+    case 'Receipt': return <Receipt size={size} />;
+    case 'DollarSign': return <DollarSign size={size} />;
+    default: return <Zap size={size} />;
+  }
+};
+
+// Shift Initialization Modal Component
+const ShiftStartModal = ({ onClose, lastActualCash, onStart, accounts }: any) => {
   const [accountingDate, setAccountingDate] = useState(new Date().toISOString().split('T')[0]);
-  const [topUp, setTopUp] = useState('');
-  const [topUpSource, setTopUpSource] = useState('business_bank');
+  const [injectedAmount, setInjectedAmount] = useState('');
+  const [injectedSourceId, setInjectedSourceId] = useState('');
+
+  const liquidAccounts = accounts.filter((a: any) => ['cash', 'bank', 'asset'].includes(a.type));
+  
+  const currentInjectedValue = parseFloat(injectedAmount) || 0;
+  const totalOpeningFloatValue = lastActualCash + currentInjectedValue;
 
   const handleStart = () => {
     const injections = [];
-    if (parseFloat(topUp) > 0) {
-      injections.push({ id: Date.now().toString(), source: topUpSource, amount: parseFloat(topUp) });
+    if (currentInjectedValue > 0 && injectedSourceId) {
+      const sourceAcc = accounts.find((a: any) => a.id === injectedSourceId);
+      injections.push({ 
+        id: Date.now().toString(), 
+        source: sourceAcc?.name || 'Injected Funds', 
+        amount: currentInjectedValue 
+      });
     }
-    onStart(openingFloat, injections, accountingDate);
+    onStart(totalOpeningFloatValue, injections, accountingDate);
   };
 
   return (
@@ -233,41 +272,81 @@ const ShiftStartModal = ({ onClose, lastActualCash, onStart }: any) => {
       <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-md" onClick={onClose} />
       <div className="relative bg-white w-full max-w-md rounded-[2.5rem] shadow-2xl p-8 animate-in zoom-in duration-300">
         <h2 className="text-2xl font-black text-slate-900 mb-2">Service Initialization</h2>
-        <p className="text-slate-500 text-sm mb-8">Setup your operational data for this session.</p>
+        <p className="text-slate-500 text-sm mb-8 font-medium">Setup your operational data for this session.</p>
         
         <div className="space-y-6">
+          {/* Accounting Date */}
           <div className="space-y-2">
-            <label className="text-xs font-black text-slate-400 uppercase tracking-widest ml-1">Accounting Date</label>
+            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Accounting Date</label>
             <input 
               type="date"
               value={accountingDate}
               onChange={(e) => setAccountingDate(e.target.value)}
-              className="w-full h-14 px-6 bg-slate-50 border-none rounded-2xl text-slate-900 font-bold focus:ring-2 focus:ring-blue-500"
+              className="w-full h-14 px-6 bg-slate-50 border-none rounded-2xl text-slate-900 font-bold focus:ring-2 focus:ring-blue-500 outline-none"
             />
           </div>
 
+          {/* Inject Float Section */}
+          <div className="space-y-4 pt-2">
+             <div className="flex items-center gap-2">
+               <ArrowDownCircle size={14} className="text-blue-500" />
+               <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Inject Float from Source</label>
+             </div>
+             
+             <div className="grid grid-cols-2 gap-3">
+               <div className="relative">
+                 <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 font-bold">$</span>
+                 <input 
+                   type="number"
+                   placeholder="Amount"
+                   value={injectedAmount}
+                   onChange={(e) => setInjectedAmount(e.target.value)}
+                   className="w-full h-12 pl-8 pr-4 bg-slate-50 border-none rounded-xl text-sm font-bold text-slate-900 focus:ring-2 focus:ring-blue-400 outline-none"
+                 />
+               </div>
+               <select 
+                 value={injectedSourceId}
+                 onChange={(e) => setInjectedSourceId(e.target.value)}
+                 className="h-12 px-3 bg-slate-50 border-none rounded-xl text-xs font-bold text-slate-500 appearance-none focus:ring-2 focus:ring-blue-400 outline-none"
+               >
+                 <option value="">Select Source...</option>
+                 {liquidAccounts.map((a: any) => (
+                   <option key={a.id} value={a.id}>{a.name}</option>
+                 ))}
+               </select>
+             </div>
+          </div>
+
+          {/* Float Carry Forward (Display Only) */}
           <div className="p-5 bg-blue-50 rounded-3xl border border-blue-100">
-            <label className="text-[10px] font-black text-blue-400 uppercase tracking-widest mb-1 block">Float Carry Forward</label>
+            <div className="flex items-center justify-between mb-1">
+              <label className="text-[10px] font-black text-blue-400 uppercase tracking-widest">Float Carry Forward</label>
+              <div className="flex items-center gap-1 text-[8px] font-black text-blue-600 bg-white px-2 py-0.5 rounded-lg shadow-sm border border-blue-50">
+                <CheckCircle2 size={10} />
+                ACTUAL
+              </div>
+            </div>
             <div className="flex items-center justify-between">
               <span className="text-2xl font-black text-blue-700">${lastActualCash.toLocaleString()}</span>
-              <button onClick={() => setOpeningFloat(lastActualCash)} className="text-[10px] font-black text-blue-600 bg-white px-3 py-1.5 rounded-xl shadow-sm">USE ACTUAL</button>
+              <div className="p-2 bg-blue-100 rounded-xl text-blue-600"><Wallet size={18} /></div>
             </div>
           </div>
 
-          <div className="space-y-2">
-            <label className="text-xs font-black text-slate-400 uppercase tracking-widest ml-1">Initial Opening Float</label>
-            <input 
-              type="number"
-              value={openingFloat}
-              onChange={(e) => setOpeningFloat(parseFloat(e.target.value) || 0)}
-              className="w-full h-16 px-6 bg-slate-50 border-none rounded-2xl text-slate-900 font-black text-xl focus:ring-2 focus:ring-blue-500"
-            />
+          {/* Total Opening Float (Display Only - Non-editable as requested) */}
+          <div className="space-y-2 pt-2">
+            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Initial Opening Float</label>
+            <div className="w-full h-14 px-6 bg-slate-100 border border-slate-200 rounded-2xl flex items-center justify-between opacity-80">
+              <span className="text-slate-400 font-black text-xl">$</span>
+              <span className="text-slate-900 font-black text-2xl">{totalOpeningFloatValue.toLocaleString()}</span>
+            </div>
+            <p className="text-[9px] text-slate-400 font-medium italic text-center">Sum of carry forward and injected funds.</p>
           </div>
 
           <button 
             onClick={handleStart}
-            className="w-full h-16 bg-blue-600 text-white rounded-2xl font-black text-lg shadow-xl shadow-blue-100 hover:bg-blue-700 mt-4 transition-all"
+            className="w-full h-16 bg-blue-600 text-white rounded-2xl font-black text-lg shadow-xl shadow-blue-100 hover:bg-blue-700 mt-4 transition-all active:scale-95 flex items-center justify-center gap-3"
           >
+            <Play size={20} fill="white" />
             OPEN REGISTER
           </button>
         </div>
@@ -276,7 +355,6 @@ const ShiftStartModal = ({ onClose, lastActualCash, onStart }: any) => {
   );
 };
 
-// ... Shared Modal Components ...
 const MenuModal = ({ title, targetAccount, children, onClose }: any) => (
   <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
     <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={onClose} />
@@ -304,7 +382,7 @@ const SalesModal = ({ current, targetAccount, onClose, onSave }: any) => {
           <span className="absolute left-6 top-1/2 -translate-y-1/2 text-slate-400 font-black text-2xl">$</span>
           <input 
             type="number" autoFocus
-            className="w-full h-20 pl-12 pr-6 bg-slate-50 rounded-3xl text-3xl font-black focus:ring-2 focus:ring-blue-500 border-none"
+            className="w-full h-20 pl-12 pr-6 bg-slate-50 rounded-3xl text-3xl font-black focus:ring-2 focus:ring-blue-500 border-none outline-none"
             value={val} onChange={e=>setVal(e.target.value)}
           />
         </div>
@@ -322,7 +400,7 @@ const CardsModal = ({ current, targetAccount, onClose, onSave }: any) => {
         <p className="text-sm text-slate-500 font-medium">Total bank settlement (Card/Digital).</p>
         <input 
           type="number" autoFocus
-          className="w-full h-16 px-6 bg-slate-50 rounded-2xl text-2xl font-black focus:ring-2 focus:ring-purple-500 border-none"
+          className="w-full h-16 px-6 bg-slate-50 rounded-2xl text-2xl font-black focus:ring-2 focus:ring-purple-500 border-none outline-none"
           value={val} onChange={e=>setVal(e.target.value)}
         />
         <button onClick={()=>{onSave(parseFloat(val)||0); onClose();}} className="w-full h-14 bg-purple-600 text-white rounded-2xl font-black mt-4">LOG CARDS</button>
@@ -339,7 +417,7 @@ const HikingModal = ({ current, targetAccount, onClose, onSave }: any) => {
         <p className="text-sm text-slate-500 font-medium">Move specific portion to Hiking Bar Receivable.</p>
         <input 
           type="number" autoFocus
-          className="w-full h-16 px-6 bg-slate-50 rounded-2xl text-2xl font-black focus:ring-2 focus:ring-orange-500 border-none"
+          className="w-full h-16 px-6 bg-slate-50 rounded-2xl text-2xl font-black focus:ring-2 focus:ring-orange-500 border-none outline-none"
           value={val} onChange={e=>setVal(e.target.value)}
         />
         <button onClick={()=>{onSave(parseFloat(val)||0); onClose();}} className="w-full h-14 bg-orange-600 text-white rounded-2xl font-black mt-4">MOVE TO HIKING</button>
@@ -358,14 +436,14 @@ const FXModal = ({ current, targetAccount, onClose, onSave }: any) => {
           <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Base Value</label>
           <input 
             type="number" autoFocus
-            className="w-full h-14 px-6 bg-slate-50 rounded-xl text-xl font-black focus:ring-2 focus:ring-indigo-500 border-none"
+            className="w-full h-14 px-6 bg-slate-50 rounded-xl text-xl font-black focus:ring-2 focus:ring-indigo-500 border-none outline-none"
             value={val} onChange={e=>setVal(e.target.value)}
           />
         </div>
         <div className="space-y-1.5">
           <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Comment (e.g. 50 USD x 2)</label>
           <input 
-            className="w-full h-14 px-6 bg-slate-50 rounded-xl font-bold border-none"
+            className="w-full h-14 px-6 bg-slate-50 rounded-xl font-bold border-none outline-none"
             value={comment} onChange={e=>setComment(e.target.value)}
           />
         </div>
@@ -392,7 +470,7 @@ const BillsModal = ({ current, targetAccount, customers, onClose, onSave }: any)
       <div className="space-y-6">
         <div className="bg-slate-50 p-4 rounded-3xl space-y-3">
           <select 
-            className="w-full h-12 px-4 bg-white border-none rounded-xl font-bold"
+            className="w-full h-12 px-4 bg-white border-none rounded-xl font-bold outline-none"
             value={selectedCust}
             onChange={(e) => setSelectedCust(e.target.value)}
           >
@@ -401,7 +479,7 @@ const BillsModal = ({ current, targetAccount, customers, onClose, onSave }: any)
           <div className="flex gap-2">
             <input 
               type="number" placeholder="Amt"
-              className="flex-1 h-12 px-4 bg-white border-none rounded-xl font-bold"
+              className="flex-1 h-12 px-4 bg-white border-none rounded-xl font-bold outline-none"
               value={amount} onChange={(e) => setAmount(e.target.value)}
             />
             <button onClick={handleAdd} className="px-6 h-12 bg-emerald-600 text-white rounded-xl font-black">ADD</button>
@@ -428,6 +506,17 @@ const ExpensesModal = ({ current, targetAccount, onClose, onSave }: any) => {
   const [exps, setExps] = useState<ShiftExpense[]>(current);
   const [desc, setDesc] = useState('');
   const [amt, setAmt] = useState('');
+  const [presets, setPresets] = useState<any[]>([]);
+
+  useEffect(() => {
+    const saved = localStorage.getItem('mozza_expense_presets');
+    if (saved) {
+      setPresets(JSON.parse(saved));
+    } else {
+      // If no custom presets, show defaults to ensure "One-Tap" always has content
+      setPresets(DEFAULT_PRESETS);
+    }
+  }, []);
 
   const handleAdd = () => {
     if (!amt || !desc) return;
@@ -435,36 +524,118 @@ const ExpensesModal = ({ current, targetAccount, onClose, onSave }: any) => {
     setDesc(''); setAmt('');
   };
 
+  const handleApplyPreset = (p: any) => {
+    setDesc(p.label);
+    if (p.amount > 0) setAmt(p.amount.toString());
+  };
+
   return (
     <MenuModal title="Shift Expenses" targetAccount={targetAccount} onClose={onClose}>
       <div className="space-y-6">
-        <div className="bg-slate-50 p-4 rounded-3xl space-y-3">
-          <input 
-            placeholder="What was paid for?"
-            className="w-full h-12 px-4 bg-white border-none rounded-xl font-bold text-sm"
-            value={desc} onChange={(e) => setDesc(e.target.value)}
-          />
-          <div className="flex gap-2">
-            <input 
-              type="number" placeholder="Amt"
-              className="flex-1 h-12 px-4 bg-white border-none rounded-xl font-bold"
-              value={amt} onChange={(e) => setAmt(e.target.value)}
-            />
-            <button onClick={handleAdd} className="px-6 h-12 bg-red-600 text-white rounded-xl font-black">LOG</button>
+        {/* One-Tap Presets Section - Compact Grid */}
+        {presets.length > 0 && (
+          <div className="space-y-3">
+            <div className="flex items-center gap-2">
+              <Star size={12} className="text-amber-500 fill-amber-500" />
+              <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">One-Tap Presets</p>
+            </div>
+            <div className="grid grid-cols-2 gap-2 max-h-40 overflow-y-auto custom-scrollbar p-1">
+              {presets.map((p) => (
+                <button 
+                  key={p.id}
+                  onClick={() => handleApplyPreset(p)}
+                  className={`p-3 border rounded-2xl transition-all flex items-center gap-3 active:scale-95 group text-left
+                    ${desc === p.label ? 'bg-blue-50 border-blue-200' : 'bg-white border-slate-100 hover:border-blue-100 hover:bg-slate-50'}
+                  `}
+                >
+                  <div className={`w-8 h-8 rounded-xl flex items-center justify-center ${p.bg} ${p.color} shadow-sm group-hover:scale-110 transition-transform shrink-0`}>
+                    <IconRenderer name={p.iconName} size={14} />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className={`text-[10px] font-black uppercase tracking-wider truncate ${desc === p.label ? 'text-blue-700' : 'text-slate-700'}`}>
+                      {p.label}
+                    </p>
+                    <p className="text-[8px] font-bold text-slate-400 uppercase truncate">{p.category}</p>
+                  </div>
+                </button>
+              ))}
+            </div>
           </div>
-        </div>
-        <div className="max-h-48 overflow-y-auto space-y-2">
-          {exps.map((e, i) => (
-            <div key={i} className="flex justify-between items-center p-3 bg-white rounded-xl border border-slate-100 shadow-sm">
-              <span className="text-xs font-bold text-slate-700">{e.description}</span>
-              <div className="flex items-center gap-3">
-                <span className="text-xs font-black text-red-600">${e.amount}</span>
-                <button onClick={()=>setExps(exps.filter((_, idx)=>idx !== i))}><X size={14} className="text-slate-300" /></button>
+        )}
+
+        <div className="bg-slate-50 p-6 rounded-[2rem] border border-slate-100 space-y-4">
+          <div className="space-y-1">
+            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Expense Description</label>
+            <input 
+              placeholder="e.g. Fresh Produce, Ice, Gas..."
+              className="w-full h-14 px-5 bg-white border border-slate-100 rounded-2xl font-bold text-sm outline-none focus:ring-2 focus:ring-red-100 transition-all"
+              value={desc} onChange={(e) => setDesc(e.target.value)}
+            />
+          </div>
+          
+          <div className="flex gap-3">
+            <div className="flex-1 space-y-1">
+              <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Amount</label>
+              <div className="relative">
+                <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 font-bold">$</span>
+                <input 
+                  type="number" placeholder="0.00"
+                  className="w-full h-14 pl-10 pr-4 bg-white border border-slate-100 rounded-2xl font-black text-lg outline-none focus:ring-2 focus:ring-red-100 transition-all"
+                  value={amt} onChange={(e) => setAmt(e.target.value)}
+                />
               </div>
             </div>
-          ))}
+            <div className="flex flex-col justify-end">
+              <button 
+                onClick={handleAdd} 
+                disabled={!amt || !desc}
+                className="h-14 px-8 bg-red-600 text-white rounded-2xl font-black uppercase tracking-widest shadow-lg shadow-red-100 active:scale-95 transition-all disabled:opacity-50"
+              >
+                LOG
+              </button>
+            </div>
+          </div>
         </div>
-        <button onClick={()=>{onSave(exps); onClose();}} className="w-full h-14 bg-red-600 text-white rounded-2xl font-black mt-2">SAVE EXPENSES</button>
+
+        <div className="space-y-2">
+          <div className="flex items-center justify-between px-1">
+            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Logged Items</p>
+            <p className="text-[10px] font-black text-slate-900 uppercase tracking-widest">Total: ${exps.reduce((s,e)=>s+e.amount, 0).toLocaleString()}</p>
+          </div>
+          <div className="max-h-48 overflow-y-auto space-y-2 custom-scrollbar pr-1">
+            {exps.map((e, i) => (
+              <div key={i} className="flex justify-between items-center p-4 bg-white rounded-2xl border border-slate-100 shadow-sm animate-in slide-in-from-right-2">
+                <div className="flex items-center gap-3">
+                   <div className="p-2 bg-red-50 text-red-500 rounded-lg"><Receipt size={14} /></div>
+                   <span className="text-xs font-bold text-slate-700">{e.description}</span>
+                </div>
+                <div className="flex items-center gap-4">
+                  <span className="text-sm font-black text-red-600">${e.amount.toLocaleString()}</span>
+                  <button 
+                    onClick={()=>setExps(exps.filter((_, idx)=>idx !== i))}
+                    className="p-1.5 hover:bg-red-50 text-slate-300 hover:text-red-500 rounded-lg transition-colors"
+                  >
+                    <X size={16} />
+                  </button>
+                </div>
+              </div>
+            ))}
+            {exps.length === 0 && (
+              <div className="py-12 border-2 border-dashed border-slate-100 rounded-[2rem] flex flex-col items-center justify-center text-slate-300">
+                <Receipt size={32} className="mb-2 opacity-30" />
+                <p className="text-xs font-bold uppercase tracking-widest">No entries yet</p>
+              </div>
+            )}
+          </div>
+        </div>
+        
+        <button 
+          onClick={()=>{onSave(exps); onClose();}} 
+          className="w-full h-16 bg-slate-900 text-white rounded-3xl font-black text-lg mt-2 shadow-2xl shadow-slate-200 active:scale-95 transition-all flex items-center justify-center gap-3 uppercase tracking-widest"
+        >
+          <CheckCircle2 size={24} />
+          COMMIT EXPENSES
+        </button>
       </div>
     </MenuModal>
   );
@@ -486,18 +657,18 @@ const CashCalcModal = ({ onClose, onFinalize }: any) => {
           {[5000, 2000, 1000, 500, 100, 50, 20].map((den) => (
             <div key={den} className="flex items-center gap-4 bg-slate-50 p-4 rounded-2xl">
               <div className="w-16 font-black text-slate-400 text-xs uppercase">{den}s</div>
-              <input type="number" className="flex-1 bg-transparent border-none text-right font-black text-xl focus:ring-0" value={counts[den] || ''} onChange={(e) => setCounts({...counts, [den]: parseInt(e.target.value) || 0})} />
+              <input type="number" className="flex-1 bg-transparent border-none text-right font-black text-xl focus:ring-0 outline-none" value={counts[den] || ''} onChange={(e) => setCounts({...counts, [den]: parseInt(e.target.value) || 0})} />
             </div>
           ))}
           <div className="flex items-center gap-4 bg-slate-50 p-4 rounded-2xl">
             <div className="w-16 font-black text-slate-400 text-xs uppercase">Coins</div>
-            <input type="number" className="flex-1 bg-transparent border-none text-right font-black text-xl focus:ring-0" value={counts.coins || ''} onChange={(e) => setCounts({...counts, coins: parseFloat(e.target.value) || 0})} />
+            <input type="number" className="flex-1 bg-transparent border-none text-right font-black text-xl focus:ring-0 outline-none" value={counts.coins || ''} onChange={(e) => setCounts({...counts, coins: parseFloat(e.target.value) || 0})} />
           </div>
         </div>
         <div className="sticky bottom-0 bg-slate-900 text-white p-6 rounded-[2rem] flex flex-col items-center">
           <p className="text-[10px] font-black uppercase tracking-widest opacity-50 mb-1">Final Count</p>
           <p className="text-4xl font-black mb-6">${total.toLocaleString()}</p>
-          <button onClick={() => { localStorage.setItem('mozza_last_calc_total', total.toString()); onFinalize(); onClose(); }} className="w-full py-4 bg-blue-600 rounded-2xl font-black">VERIFY & PROCEED</button>
+          <button onClick={() => { localStorage.setItem('mozza_last_calc_total', total.toString()); onFinalize(); onClose(); }} className="w-full py-4 bg-blue-600 rounded-2xl font-black shadow-lg shadow-blue-500/20 active:scale-[0.98] transition-all">VERIFY & PROCEED</button>
         </div>
       </div>
     </div>

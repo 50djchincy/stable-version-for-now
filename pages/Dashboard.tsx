@@ -32,30 +32,54 @@ const Dashboard: React.FC = () => {
   const { transactions, expenses, setCurrentPage } = useApp();
 
   const analytics = useMemo(() => {
-    // Current Ledger Stats
-    const totalOut = transactions.filter(t => t.amount < 0).reduce((sum, t) => sum + Math.abs(t.amount), 0);
-    const payrollOut = transactions.filter(t => t.amount < 0 && t.category === 'Payroll Expense').reduce((sum, t) => sum + Math.abs(t.amount), 0);
+    // Filter out internal virtual ledger movements to ensure accurate financial reporting
+    const realTransactions = transactions.filter(t => 
+      t.accountId !== 'internal_ledger' && 
+      t.accountId !== 'internal_staff_ledger'
+    );
+
+    // Calculate Total Real Outflow
+    const totalOut = realTransactions
+      .filter(t => t.amount < 0)
+      .reduce((sum, t) => sum + Math.abs(t.amount), 0);
+
+    // Robust Labor Cost calculation (includes Salary, Advances, and staff-tagged entries)
+    const laborRelatedCategories = ['Payroll Expense', 'Staff Advance', 'Staffing', 'Payroll', 'Salary'];
+    const laborCost = realTransactions.filter(t => 
+      t.amount < 0 && 
+      (!!t.staffId || laborRelatedCategories.includes(t.category))
+    ).reduce((sum, t) => sum + Math.abs(t.amount), 0);
+
+    const operationalCost = Math.max(0, totalOut - laborCost);
     
     // Reminders Stats
     const pendingItems = expenses.filter(e => e.paymentStatus === 'pending');
     const recurringItems = expenses.filter(e => e.paymentStatus === 'recurring');
     const totalRemindersAmt = [...pendingItems, ...recurringItems].reduce((sum, e) => sum + e.amount, 0);
 
-    // Weekly Spend Data
+    // Weekly Spend Data (Heatmap)
     const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
     const chartData = days.map(d => ({ name: d, value: 0 }));
-    transactions.filter(t => t.amount < 0).forEach(t => {
+    realTransactions.filter(t => t.amount < 0).forEach(t => {
        const day = days[new Date(t.date).getDay()];
        const entry = chartData.find(c => c.name === day);
        if (entry) entry.value += Math.abs(t.amount);
     });
 
-    return { totalOut, payrollOut, pendingItems, recurringItems, totalRemindersAmt, chartData };
+    return { 
+      totalOut, 
+      laborCost, 
+      operationalCost, 
+      pendingItems, 
+      recurringItems, 
+      totalRemindersAmt, 
+      chartData 
+    };
   }, [transactions, expenses]);
 
   const categoryData = [
-    { name: 'Labor', value: analytics.payrollOut, color: '#8B5CF6' },
-    { name: 'Operations', value: analytics.totalOut - analytics.payrollOut, color: '#3B82F6' },
+    { name: 'Labor', value: analytics.laborCost, color: '#8B5CF6' },
+    { name: 'Operations', value: analytics.operationalCost, color: '#3B82F6' },
   ];
 
   return (
@@ -108,7 +132,7 @@ const Dashboard: React.FC = () => {
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         <StatCard title="Total Outflow" value={`$${analytics.totalOut.toLocaleString()}`} change="Live Ledger" isPositive={false} icon={<DollarSign className="text-blue-600" />} />
         <StatCard title="Total Liability" value={`$${analytics.totalRemindersAmt.toLocaleString()}`} change={`${analytics.pendingItems.length + analytics.recurringItems.length} Active`} isPositive={true} icon={<AlertCircle className="text-amber-600" />} />
-        <StatCard title="Staff Salaries" value={`$${analytics.payrollOut.toLocaleString()}`} change="Cycle Active" isPositive={true} icon={<Users className="text-purple-600" />} />
+        <StatCard title="Labor Cost" value={`$${analytics.laborCost.toLocaleString()}`} change="Cycle Active" isPositive={true} icon={<Users className="text-purple-600" />} />
       </div>
 
       {/* Charts Section */}
@@ -146,7 +170,17 @@ const Dashboard: React.FC = () => {
           <div className="h-[200px] w-full mb-6">
             <ResponsiveContainer width="100%" height="100%">
               <PieChart>
-                <Pie data={categoryData} cx="50%" cy="50%" innerRadius={60} outerRadius={80} paddingAngle={8} dataKey="value">
+                <Pie 
+                  data={categoryData} 
+                  cx="50%" 
+                  cy="50%" 
+                  innerRadius={60} 
+                  outerRadius={80} 
+                  paddingAngle={8} 
+                  dataKey="value"
+                  animationBegin={0}
+                  animationDuration={800}
+                >
                   {categoryData.map((entry, index) => (
                     <Cell key={`cell-${index}`} fill={entry.color} />
                   ))}
@@ -178,7 +212,7 @@ const Dashboard: React.FC = () => {
           <button onClick={() => setCurrentPage('ledger')} className="text-blue-600 font-black text-xs uppercase tracking-widest hover:underline">View All</button>
         </div>
         <div className="space-y-6">
-          {transactions.slice(0, 5).map((t) => (
+          {transactions.filter(t => t.accountId !== 'internal_staff_ledger').slice(0, 5).map((t) => (
             <div key={t.id} className="flex items-center justify-between group cursor-pointer">
               <div className="flex items-center gap-4">
                 <div className="w-12 h-12 bg-slate-50 rounded-2xl flex items-center justify-center text-slate-400 group-hover:bg-blue-50 group-hover:text-blue-600 transition-colors">

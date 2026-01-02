@@ -33,7 +33,8 @@ import {
   Snowflake,
   ShoppingBag,
   Truck,
-  Star
+  Star,
+  Save
 } from 'lucide-react';
 import { 
   BarChart, 
@@ -89,6 +90,7 @@ export default function Expenses() {
     deleteExpense, 
     vendors, 
     addVendor, 
+    updateVendor,
     deleteVendor,
     addTransaction
   } = useApp();
@@ -114,6 +116,12 @@ export default function Expenses() {
   const [settleAccountId, setSettleAccountId] = useState('');
   const [isManageMode, setIsManageMode] = useState(false);
   const suggestionRef = useRef<HTMLDivElement>(null);
+
+  // --- REGISTRY MODAL STATE ---
+  const [newVendorName, setNewVendorName] = useState('');
+  const [newVendorCategory, setNewVendorCategory] = useState('Inventory');
+  const [editingVendorId, setEditingVendorId] = useState<string | null>(null);
+  const [editVendorData, setEditVendorData] = useState({ name: '', category: '' });
 
   // --- PRESETS STATE ---
   const [presets, setPresets] = useState<Preset[]>(() => {
@@ -300,6 +308,30 @@ export default function Expenses() {
 
   const removeCategory = (cat: string) => {
     setCategories(prev => prev.filter(c => c !== cat));
+  };
+
+  // Registry Modal Actions
+  const handleAddNewVendor = async () => {
+    if (!newVendorName) return;
+    await addVendor({ 
+      name: newVendorName, 
+      category: newVendorCategory, 
+      status: 'active', 
+      color: '#3B82F6' 
+    });
+    setNewVendorName('');
+    setNewVendorCategory('Inventory');
+  };
+
+  const startEditVendor = (v: Vendor) => {
+    setEditingVendorId(v.id);
+    setEditVendorData({ name: v.name, category: v.category });
+  };
+
+  const saveEditedVendor = async () => {
+    if (!editingVendorId) return;
+    await updateVendor(editingVendorId, { name: editVendorData.name, category: editVendorData.category });
+    setEditingVendorId(null);
   };
 
   const liquidAccounts = accounts.filter(a => ['asset', 'bank', 'cash', 'income'].includes(a.type));
@@ -738,22 +770,76 @@ export default function Expenses() {
       {showVendorManager && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-md" onClick={() => setShowVendorManager(false)} />
-          <div className="relative bg-white w-full max-w-lg rounded-[3rem] shadow-2xl p-10 animate-in slide-in-from-right duration-300">
-            <div className="flex justify-between items-center mb-8">
+          <div className="relative bg-white w-full max-w-lg rounded-[3rem] shadow-2xl p-10 animate-in slide-in-from-right duration-300 flex flex-col max-h-[90vh]">
+            <div className="flex justify-between items-center mb-8 shrink-0">
               <h2 className="text-2xl font-black text-slate-900">Supplier Registry</h2>
-              <button onClick={() => setShowVendorManager(false)} className="p-2 hover:bg-slate-100 rounded-full transition-colors"><X size={24} /></button>
+              <button onClick={() => setShowVendorManager(false)} className="p-2 hover:bg-slate-50 rounded-full transition-colors"><X size={24} /></button>
             </div>
-            <div className="space-y-4 max-h-[500px] overflow-y-auto pr-2 custom-scrollbar">
+            
+            {/* New Vendor Form */}
+            <div className="mb-8 p-6 bg-slate-50 rounded-3xl border border-slate-100 shrink-0 space-y-4">
+              <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Add New Supplier</p>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <input 
+                  type="text" 
+                  placeholder="Supplier Name" 
+                  value={newVendorName}
+                  onChange={(e) => setNewVendorName(e.target.value)}
+                  className="px-4 py-3 bg-white border border-slate-200 rounded-xl font-bold text-sm focus:ring-2 focus:ring-blue-100 outline-none"
+                />
+                <select 
+                  value={newVendorCategory}
+                  onChange={(e) => setNewVendorCategory(e.target.value)}
+                  className="px-4 py-3 bg-white border border-slate-200 rounded-xl font-bold text-sm outline-none"
+                >
+                  {categories.map(c => <option key={c} value={c}>{c}</option>)}
+                </select>
+              </div>
+              <button 
+                onClick={handleAddNewVendor}
+                className="w-full py-3 bg-slate-900 text-white rounded-xl font-black text-xs uppercase tracking-widest shadow-lg active:scale-95 transition-all flex items-center justify-center gap-2"
+              >
+                <Plus size={16} /> Save to Registry
+              </button>
+            </div>
+
+            <div className="space-y-4 overflow-y-auto pr-2 custom-scrollbar flex-1">
                {vendors.map(v => (
-                 <div key={v.id} className="p-4 bg-slate-50 rounded-2xl flex items-center justify-between group">
-                   <div className="flex items-center gap-4">
-                     <div className="w-10 h-10 rounded-xl bg-blue-500 text-white flex items-center justify-center font-black">{v.name[0]}</div>
-                     <div>
-                       <p className="font-black text-slate-900 text-sm">{v.name}</p>
-                       <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{v.category}</p>
+                 <div key={v.id} className="p-4 bg-white border border-slate-100 rounded-2xl flex items-center justify-between group hover:border-blue-200 transition-all">
+                   {editingVendorId === v.id ? (
+                     <div className="flex-1 flex gap-2 items-center">
+                        <input 
+                          autoFocus
+                          type="text" 
+                          value={editVendorData.name}
+                          onChange={(e) => setEditVendorData({...editVendorData, name: e.target.value})}
+                          className="flex-1 px-3 py-2 bg-slate-50 border border-blue-200 rounded-lg font-bold text-sm outline-none"
+                        />
+                        <select 
+                          value={editVendorData.category}
+                          onChange={(e) => setEditVendorData({...editVendorData, category: e.target.value})}
+                          className="px-2 py-2 bg-slate-50 border border-blue-200 rounded-lg font-bold text-xs outline-none"
+                        >
+                          {categories.map(c => <option key={c} value={c}>{c}</option>)}
+                        </select>
+                        <button onClick={saveEditedVendor} className="p-2 bg-emerald-500 text-white rounded-lg shadow-md"><Save size={16} /></button>
+                        <button onClick={() => setEditingVendorId(null)} className="p-2 bg-slate-200 text-slate-500 rounded-lg"><X size={16} /></button>
                      </div>
-                   </div>
-                   <button onClick={() => confirm('Delete vendor?') && deleteVendor(v.id)} className="p-2 text-slate-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-all"><Trash2 size={18} /></button>
+                   ) : (
+                     <>
+                       <div className="flex items-center gap-4">
+                         <div className="w-10 h-10 rounded-xl bg-blue-500 text-white flex items-center justify-center font-black">{v.name[0]}</div>
+                         <div>
+                           <p className="font-black text-slate-900 text-sm">{v.name}</p>
+                           <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{v.category}</p>
+                         </div>
+                       </div>
+                       <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                         <button onClick={() => startEditVendor(v)} className="p-2 text-slate-400 hover:text-blue-500 transition-all"><Edit2 size={16} /></button>
+                         <button onClick={() => confirm('Delete vendor?') && deleteVendor(v.id)} className="p-2 text-slate-400 hover:text-red-500 transition-all"><Trash2 size={16} /></button>
+                       </div>
+                     </>
+                   )}
                  </div>
                ))}
                {vendors.length === 0 && <div className="py-20 text-center text-slate-400 italic">No registry entries.</div>}

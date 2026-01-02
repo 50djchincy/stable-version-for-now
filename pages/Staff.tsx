@@ -21,7 +21,9 @@ import {
   Wallet,
   AlertCircle,
   CreditCard,
-  PlusCircle
+  PlusCircle,
+  TrendingDown,
+  Activity
 } from 'lucide-react';
 import { StaffMember, HolidayRecord } from '../types';
 
@@ -85,9 +87,7 @@ const Staff: React.FC = () => {
   const periodRange = useMemo(() => {
     const year = currentMonth.getFullYear();
     const month = currentMonth.getMonth();
-    // Start of cycle is 15th of prev month
     const startDate = new Date(year, month - 1, 15);
-    // End of cycle is 14th of current month
     const endDate = new Date(year, month, 14);
     return { startDate, endDate };
   }, [currentMonth]);
@@ -116,17 +116,24 @@ const Staff: React.FC = () => {
       t.staffId === staffId && 
       ['Staff Advance', 'Staff Payroll Internal'].includes(t.category)
     );
-    const issued = staffTxs.filter(t => t.category === 'Staff Advance').reduce((acc, t) => acc + t.amount, 0);
+    // Advances are negative (money leaving account), settlements are positive (balancing ledger)
+    const issued = staffTxs.filter(t => t.category === 'Staff Advance').reduce((acc, t) => acc + Math.abs(t.amount), 0);
     const cleared = staffTxs.filter(t => t.category === 'Staff Payroll Internal').reduce((acc, t) => acc + t.amount, 0);
     return Math.max(0, issued - cleared);
   };
+
+  // --- Operational Intelligence Calculations ---
+  const staffIntelligence = useMemo(() => {
+    const totalLoans = staff.reduce((sum, s) => sum + (s.loanBalance || 0), 0);
+    const totalAdvances = staff.reduce((sum, s) => sum + getOutstandingAdvances(s.id), 0);
+    return { totalLoans, totalAdvances };
+  }, [staff, transactions]);
 
   const handleAddStaffSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const formData = new FormData(e.target as HTMLFormElement);
     setActionLoading(true);
     try {
-      // Fix: Remove 'isActive' and 'joinedAt' from the addStaff call as they are omitted in the function's parameter type and handled inside the function.
       await addStaff({
         name: formData.get('name') as string,
         role: formData.get('role') as string,
@@ -207,8 +214,6 @@ const Staff: React.FC = () => {
     const s = staff.find(sm => sm.id === staffId);
     if (!s) return;
     const advances = getOutstandingAdvances(staffId);
-    
-    // Default to the first bank account or any liquid source
     const defaultSourceId = payoutSources.find(a => a.type === 'bank')?.id || payoutSources[0]?.id || '';
 
     setPayrollConfig({
@@ -233,7 +238,6 @@ const Staff: React.FC = () => {
 
     setActionLoading(true);
     try {
-      // 1. Pay Net
       if (netPay > 0) {
         await addTransaction({
           description: `${type} Payout (Net): ${s.name}`,
@@ -245,19 +249,17 @@ const Staff: React.FC = () => {
         });
       }
 
-      // 2. Clear Advance Ledger (Internal Transaction)
       if (advancesTotal > 0) {
         await addTransaction({
             description: `Advance Settled via Payroll: ${s.name}`,
             amount: advancesTotal,
             category: 'Staff Payroll Internal',
             date: new Date().toISOString(),
-            accountId: 'internal_staff_ledger', // This is a virtual reference
+            accountId: 'internal_staff_ledger',
             staffId: s.id
         });
       }
 
-      // 3. Handle Loan Repayment
       if (loanRepayment > 0) {
         await updateStaff(s.id, { loanBalance: Math.max(0, s.loanBalance - loanRepayment) });
       }
@@ -546,22 +548,31 @@ const Staff: React.FC = () => {
           <div className="space-y-6">
             <div className="bg-white rounded-[2.5rem] p-8 shadow-sm border border-slate-100 space-y-6">
               <h3 className="text-xl font-black text-slate-900 flex items-center gap-2">
-                <Zap size={24} className="text-purple-600" />
-                Workflow
+                <Activity size={24} className="text-purple-600" />
+                Operational Intel
               </h3>
-              <ul className="space-y-4">
-                <li className="flex gap-3">
-                   <div className="shrink-0 w-6 h-6 bg-emerald-50 rounded-full flex items-center justify-center text-emerald-600"><CheckCircle2 size={14} /></div>
-                   <p className="text-xs text-slate-500 font-medium">Advances are auto-deducted from payouts.</p>
-                </li>
-                <li className="flex gap-3">
-                   <div className="shrink-0 w-6 h-6 bg-emerald-50 rounded-full flex items-center justify-center text-emerald-600"><CheckCircle2 size={14} /></div>
-                   <p className="text-xs text-slate-500 font-medium">Loans track long-term debt separate from monthly salary.</p>
-                </li>
-              </ul>
-              <div className="p-6 bg-slate-900 rounded-3xl text-white">
-                <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1">Total Advances Booked</p>
-                <p className="text-2xl font-black">${accounts.reduce((sum, a) => sum + (a.name.toLowerCase().includes('staff') ? a.balance : 0), 0).toLocaleString()}</p>
+              
+              <div className="grid grid-cols-1 gap-4">
+                <div className="p-5 bg-slate-900 rounded-[2rem] text-white">
+                  <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1">Total Advances Booked</p>
+                  <p className="text-2xl font-black">${staffIntelligence.totalAdvances.toLocaleString()}</p>
+                </div>
+                
+                <div className="p-5 bg-rose-50 border border-rose-100 rounded-[2rem] text-rose-900">
+                  <p className="text-[10px] font-black text-rose-400 uppercase tracking-widest mb-1">Total Loans Outstanding</p>
+                  <p className="text-2xl font-black">${staffIntelligence.totalLoans.toLocaleString()}</p>
+                </div>
+              </div>
+
+              <div className="pt-4 border-t border-slate-100 space-y-4">
+                <div className="flex gap-3">
+                   <div className="shrink-0 w-6 h-6 bg-purple-50 rounded-full flex items-center justify-center text-purple-600"><CheckCircle2 size={14} /></div>
+                   <p className="text-xs text-slate-500 font-medium">Advances are auto-deducted from monthly payouts.</p>
+                </div>
+                <div className="flex gap-3">
+                   <div className="shrink-0 w-6 h-6 bg-purple-50 rounded-full flex items-center justify-center text-purple-600"><CheckCircle2 size={14} /></div>
+                   <p className="text-xs text-slate-500 font-medium">Loans track long-term debt separate from basic salary.</p>
+                </div>
               </div>
             </div>
           </div>
@@ -619,7 +630,6 @@ const Staff: React.FC = () => {
                       <option key={a.id} value={a.id}>{a.name} (${a.balance.toLocaleString()})</option>
                     ))}
                  </select>
-                 {payoutSources.length === 0 && <p className="text-[10px] text-red-500 font-bold mt-1">Setup source accounts in Money Lab first.</p>}
               </div>
               <button disabled={actionLoading || payoutSources.length === 0} type="submit" className="w-full py-5 bg-amber-500 text-white rounded-[1.5rem] font-black shadow-xl shadow-amber-100 active:scale-95 transition-all flex items-center justify-center gap-3">
                 {actionLoading ? <Loader2 className="animate-spin" size={24} /> : <Zap size={24} />} DISBURSE ADVANCE
@@ -656,7 +666,6 @@ const Staff: React.FC = () => {
                       <option key={a.id} value={a.id}>{a.name} (${a.balance.toLocaleString()})</option>
                     ))}
                  </select>
-                 {payoutSources.length === 0 && <p className="text-[10px] text-red-500 font-bold mt-1">Setup source accounts in Money Lab first.</p>}
               </div>
               <button disabled={actionLoading || payoutSources.length === 0} type="submit" className="w-full py-5 bg-red-600 text-white rounded-[1.5rem] font-black shadow-xl shadow-red-100 active:scale-95 transition-all flex items-center justify-center gap-3">
                 {actionLoading ? <Loader2 className="animate-spin" size={24} /> : <Zap size={24} />} ISSUE LOAN
