@@ -397,37 +397,60 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     if (!activeShift) return;
     const isConfigComplete = Object.values(flowConfig).every(val => val !== '');
     if (!isConfigComplete) return alert("Shift Flow configuration is incomplete.");
-    const closedShift: Shift = { ...activeShift, status: 'closed', endTime: new Date().toISOString(), actualCash, difference: actualCash - activeShift.expectedCash, closedBy: user?.displayName || 'Unknown' };
-    await addTransaction({ description: `Daily Sales (${closedShift.accountingDate})`, amount: closedShift.totalSales, category: 'Revenue', date: closedShift.endTime, accountId: flowConfig.salesAccount, shiftId: closedShift.id });
+    
+    // We create the closed shift object
+    const closedShift: Shift = { 
+      ...activeShift, 
+      status: 'closed', 
+      endTime: new Date().toISOString(), 
+      actualCash, 
+      difference: actualCash - activeShift.expectedCash, 
+      closedBy: user?.displayName || 'Unknown' 
+    };
+
+    // Helper to ensure values are never undefined
+    const shiftDate = closedShift.endTime || new Date().toISOString();
+    const shiftDiff = closedShift.difference || 0;
+
+    await addTransaction({ description: `Daily Sales (${closedShift.accountingDate})`, amount: closedShift.totalSales, category: 'Revenue', date: shiftDate, accountId: flowConfig.salesAccount, shiftId: closedShift.id });
+    
     if (closedShift.cards > 0) {
-      await addTransaction({ description: `Sales Card Sweep`, amount: -closedShift.cards, category: 'Transfer', date: closedShift.endTime, accountId: flowConfig.salesAccount, shiftId: closedShift.id });
-      await addTransaction({ description: `Card Settlement Receipt`, amount: closedShift.cards, category: 'Transfer', date: closedShift.endTime, accountId: flowConfig.cardsAccount, shiftId: closedShift.id });
+      await addTransaction({ description: `Sales Card Sweep`, amount: -closedShift.cards, category: 'Transfer', date: shiftDate, accountId: flowConfig.salesAccount, shiftId: closedShift.id });
+      await addTransaction({ description: `Card Settlement Receipt`, amount: closedShift.cards, category: 'Transfer', date: shiftDate, accountId: flowConfig.cardsAccount, shiftId: closedShift.id });
     }
+    
     if (closedShift.hikingBar > 0) {
-      await addTransaction({ description: `Hiking Portion Sweep`, amount: -closedShift.hikingBar, category: 'Transfer', date: closedShift.endTime, accountId: flowConfig.salesAccount, shiftId: closedShift.id });
-      await addTransaction({ description: `Hiking Bar Receivable`, amount: closedShift.hikingBar, category: 'Transfer', date: closedShift.endTime, accountId: flowConfig.hikingAccount, shiftId: closedShift.id });
+      await addTransaction({ description: `Hiking Portion Sweep`, amount: -closedShift.hikingBar, category: 'Transfer', date: shiftDate, accountId: flowConfig.salesAccount, shiftId: closedShift.id });
+      await addTransaction({ description: `Hiking Bar Receivable`, amount: closedShift.hikingBar, category: 'Transfer', date: shiftDate, accountId: flowConfig.hikingAccount, shiftId: closedShift.id });
     }
+    
     if (closedShift.foreignCurrency.value > 0) {
-      await addTransaction({ description: `FX Reserve Sweep`, amount: -closedShift.foreignCurrency.value, category: 'Transfer', date: closedShift.endTime, accountId: flowConfig.salesAccount, shiftId: closedShift.id });
-      await addTransaction({ description: `FX Reserve (${closedShift.foreignCurrency.comment})`, amount: closedShift.foreignCurrency.value, category: 'Transfer', date: closedShift.endTime, accountId: flowConfig.fxAccount, shiftId: closedShift.id });
+      await addTransaction({ description: `FX Reserve Sweep`, amount: -closedShift.foreignCurrency.value, category: 'Transfer', date: shiftDate, accountId: flowConfig.salesAccount, shiftId: closedShift.id });
+      await addTransaction({ description: `FX Reserve (${closedShift.foreignCurrency.comment})`, amount: closedShift.foreignCurrency.value, category: 'Transfer', date: shiftDate, accountId: flowConfig.fxAccount, shiftId: closedShift.id });
     }
+    
     for (const bill of closedShift.creditBills) {
-      await addTransaction({ description: `Credit Bill Sweep: ${bill.customerName}`, amount: -bill.amount, category: 'Transfer', date: closedShift.endTime, accountId: flowConfig.salesAccount, shiftId: closedShift.id });
-      await addTransaction({ description: `Guest Receivable: ${bill.customerName}`, amount: bill.amount, category: 'Transfer', date: closedShift.endTime, accountId: flowConfig.billsAccount, shiftId: closedShift.id });
+      await addTransaction({ description: `Credit Bill Sweep: ${bill.customerName}`, amount: -bill.amount, category: 'Transfer', date: shiftDate, accountId: flowConfig.salesAccount, shiftId: closedShift.id });
+      await addTransaction({ description: `Guest Receivable: ${bill.customerName}`, amount: bill.amount, category: 'Transfer', date: shiftDate, accountId: flowConfig.billsAccount, shiftId: closedShift.id });
     }
+    
     for (const exp of closedShift.expenses) {
-      await addTransaction({ description: `Shift Expense: ${exp.description}`, amount: -exp.amount, category: exp.category, date: closedShift.endTime, accountId: flowConfig.cashAccount, shiftId: closedShift.id });
+      await addTransaction({ description: `Shift Expense: ${exp.description}`, amount: -exp.amount, category: exp.category, date: shiftDate, accountId: flowConfig.cashAccount, shiftId: closedShift.id });
     }
+    
     const totalNonCash = closedShift.cards + closedShift.hikingBar + closedShift.foreignCurrency.value + closedShift.creditBills.reduce((a,b)=>a+b.amount,0);
     const cashSales = closedShift.totalSales - totalNonCash;
+    
     if (cashSales > 0) {
-      await addTransaction({ description: `Cash Portion Sweep`, amount: -cashSales, category: 'Transfer', date: closedShift.endTime, accountId: flowConfig.salesAccount, shiftId: closedShift.id });
-      await addTransaction({ description: `Shift Cash Receipt`, amount: cashSales, category: 'Transfer', date: closedShift.endTime, accountId: flowConfig.cashAccount, shiftId: closedShift.id });
+      await addTransaction({ description: `Cash Portion Sweep`, amount: -cashSales, category: 'Transfer', date: shiftDate, accountId: flowConfig.salesAccount, shiftId: closedShift.id });
+      await addTransaction({ description: `Shift Cash Receipt`, amount: cashSales, category: 'Transfer', date: shiftDate, accountId: flowConfig.cashAccount, shiftId: closedShift.id });
     }
-    if (closedShift.difference !== 0) {
-       await addTransaction({ description: `Cash Variance Adjustment`, amount: closedShift.difference, category: 'Adjustment', date: closedShift.endTime, accountId: flowConfig.varianceAccount, shiftId: closedShift.id });
-       await addTransaction({ description: `Variance Correction in Till`, amount: closedShift.difference, category: 'Adjustment', date: closedShift.endTime, accountId: flowConfig.cashAccount, shiftId: closedShift.id });
+    
+    if (shiftDiff !== 0) {
+       await addTransaction({ description: `Cash Variance Adjustment`, amount: shiftDiff, category: 'Adjustment', date: shiftDate, accountId: flowConfig.varianceAccount, shiftId: closedShift.id });
+       await addTransaction({ description: `Variance Correction in Till`, amount: shiftDiff, category: 'Adjustment', date: shiftDate, accountId: flowConfig.cashAccount, shiftId: closedShift.id });
     }
+
     if (mode === 'live') {
       const shiftRef = doc(getArtifactCollection('shifts'), activeShift.id);
       await updateDoc(shiftRef, { status: 'closed', endTime: closedShift.endTime, actualCash: closedShift.actualCash, difference: closedShift.difference, closedBy: closedShift.closedBy, totalSales: closedShift.totalSales });
