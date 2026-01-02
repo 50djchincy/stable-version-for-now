@@ -1,4 +1,3 @@
-
 import React, { useState } from 'react';
 import { useApp } from '../context/AppContext';
 import { 
@@ -12,7 +11,11 @@ import {
   X,
   PlusCircle,
   HelpCircle,
-  ChevronRight
+  ChevronRight,
+  // New imports for Portals
+  CreditCard,
+  Beer,
+  Receipt
 } from 'lucide-react';
 import { AccountType } from '../types';
 
@@ -78,24 +81,51 @@ const MoneyLab: React.FC = () => {
     return acc;
   }, {} as Record<string, typeof accounts>);
 
+  // --- PORTAL BUTTONS CONFIG ---
+  const portalButtons = [
+    { id: 'card_bills', label: 'Card Bills', icon: <CreditCard size={18} />, color: 'text-purple-600', border: 'hover:border-purple-200' },
+    { id: 'bar_sales', label: 'Bar Sales', icon: <Beer size={18} />, color: 'text-amber-600', border: 'hover:border-amber-200' },
+    { id: 'bills_rec', label: 'Bills Received', icon: <Receipt size={18} />, color: 'text-cyan-600', border: 'hover:border-cyan-200' },
+  ];
+
   return (
     <div className="space-y-8 pb-12">
-      {/* Header */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+      {/* Header Section */}
+      <div className="flex flex-col xl:flex-row xl:items-end justify-between gap-6">
         <div>
           <h1 className="text-3xl font-bold text-slate-900">Money Lab</h1>
           <p className="text-slate-500 font-medium">Manage your restaurant financial ecosystem</p>
         </div>
-        <button 
-          onClick={() => setIsModalOpen(true)}
-          className="flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-2xl font-bold shadow-lg shadow-blue-200 transition-all hover:-translate-y-1"
-        >
-          <PlusCircle size={20} />
-          <span>Setup Account</span>
-        </button>
+        
+        {/* Action Toolbar */}
+        <div className="flex flex-wrap items-center gap-3">
+          {/* New Portal Buttons */}
+          {portalButtons.map(p => (
+            <button 
+              key={p.id}
+              onClick={() => console.log(`Portal Action: ${p.label}`)}
+              className={`flex items-center gap-2 px-4 py-3 bg-white border border-slate-200 rounded-2xl font-bold text-sm shadow-sm transition-all active:scale-95 ${p.color} ${p.border} hover:shadow-md`}
+            >
+              {p.icon}
+              <span>{p.label}</span>
+            </button>
+          ))}
+
+          {/* Divider */}
+          <div className="w-px h-8 bg-slate-300 mx-1 hidden sm:block"></div>
+
+          {/* Original Setup Button */}
+          <button 
+            onClick={() => setIsModalOpen(true)}
+            className="flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-2xl font-bold shadow-lg shadow-blue-200 transition-all hover:-translate-y-1 active:scale-95"
+          >
+            <PlusCircle size={20} />
+            <span>Setup Account</span>
+          </button>
+        </div>
       </div>
 
-      {/* Account Type Grid */}
+      {/* Account Type Grid (Unchanged) */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         {accountTypes.map((type) => {
           const count = accounts.filter(a => a.type === type.id).length;
@@ -117,7 +147,7 @@ const MoneyLab: React.FC = () => {
         })}
       </div>
 
-      {/* Account Lists */}
+      {/* Account Lists (Unchanged) */}
       <div className="space-y-10">
         {accountTypes.map((type) => (
           <div key={type.id + "_list"} className="space-y-4">
@@ -159,7 +189,7 @@ const MoneyLab: React.FC = () => {
         ))}
       </div>
 
-      {/* Create Account Modal */}
+      {/* Create Account Modal (Unchanged) */}
       {isModalOpen && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={() => setIsModalOpen(false)} />
