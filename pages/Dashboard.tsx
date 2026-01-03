@@ -32,10 +32,11 @@ const Dashboard: React.FC = () => {
   const { transactions, expenses, setCurrentPage } = useApp();
 
   const analytics = useMemo(() => {
-    // Filter out internal virtual ledger movements to ensure accurate financial reporting
+    // Filter out internal virtual ledger movements AND Transfers to ensure accurate financial reporting
     const realTransactions = transactions.filter(t => 
       t.accountId !== 'internal_ledger' && 
-      t.accountId !== 'internal_staff_ledger'
+      t.accountId !== 'internal_staff_ledger' &&
+      t.category !== 'Transfer'
     );
 
     // Calculate Total Real Outflow

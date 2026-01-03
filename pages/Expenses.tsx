@@ -167,7 +167,9 @@ export default function Expenses() {
     const reportData: Record<string, number> = {};
 
     transactions.forEach(t => {
-      if (t.amount >= 0) return;
+      // Edit: Skip income (positive amounts) AND internal transfers
+      if (t.amount >= 0 || t.category === 'Transfer') return;
+
       const absAmount = Math.abs(t.amount);
       totalOutflow += absAmount;
       const isLabor = !!t.staffId || ['Payroll Expense', 'Staff Advance', 'Staffing', 'Payroll'].includes(t.category);

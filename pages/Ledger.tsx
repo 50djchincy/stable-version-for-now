@@ -1,19 +1,17 @@
-
 import React, { useState } from 'react';
 import { useApp } from '../context/AppContext';
 import { 
   ArrowLeft, 
-  Plus, 
   Calendar, 
-  Tag, 
   FileText, 
   MoreHorizontal,
-  ChevronDown,
-  ChevronUp,
-  Receipt,
   Download,
   Filter,
-  X
+  X,
+  ArrowRightLeft,
+  ArrowUpRight,
+  ArrowDownLeft,
+  Receipt
 } from 'lucide-react';
 
 const Ledger: React.FC = () => {
@@ -27,25 +25,23 @@ const Ledger: React.FC = () => {
   } = useApp();
 
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+  
+  // REPURPOSED: State now handles Transfer logic only
   const [formData, setFormData] = useState({
-    description: '',
     amount: '',
-    category: 'Operation',
-    date: new Date().toISOString().split('T')[0]
+    date: new Date().toISOString().split('T')[0],
+    transferTargetId: '',
+    transferDirection: 'out' as 'in' | 'out',
+    comment: '' // Added comment field
   });
 
   const account = accounts.find(a => a.id === selectedAccountId);
+  
+  // Helper: Get list of accounts excluding the current one
+  const otherAccounts = accounts.filter(a => a.id !== selectedAccountId);
+
   const accountTransactions = transactions.filter(t => t.accountId === selectedAccountId);
   
-  // Calculate running balance logic
-  const runningTransactions = [...accountTransactions].sort((a, b) => 
-    new Date(a.date).getTime() - new Date(b.date).getTime()
-  );
-
-  let tempBalance = account?.balance || 0;
-  // This is a bit tricky since we don't have the "initial" balance vs "current" balance split well in this simplified model.
-  // For now, let's just list them and show the current total balance at top.
-
   const handleBack = () => {
     setSelectedAccountId(null);
     setCurrentPage('moneylab');
@@ -53,21 +49,58 @@ const Ledger: React.FC = () => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedAccountId) return;
+    if (!selectedAccountId || !formData.transferTargetId) return;
 
-    await addTransaction({
-      description: formData.description,
-      amount: parseFloat(formData.amount) || 0,
-      category: formData.category,
-      date: formData.date,
-      accountId: selectedAccountId
-    });
+    const amountVal = parseFloat(formData.amount);
+    if (!amountVal) return;
+
+    const targetAccount = accounts.find(a => a.id === formData.transferTargetId);
+    const targetName = targetAccount?.name || 'Unknown';
+    const currentName = account?.name || 'Unknown';
+    
+    // Format the comment to append to description if it exists
+    const commentSuffix = formData.comment ? ` - ${formData.comment}` : '';
+
+    if (formData.transferDirection === 'out') {
+        // Send Logic: Debit Current, Credit Target
+        await addTransaction({
+            description: `Transfer to ${targetName}${commentSuffix}`,
+            amount: -amountVal,
+            category: 'Transfer',
+            date: formData.date,
+            accountId: selectedAccountId
+        });
+        await addTransaction({
+            description: `Transfer from ${currentName}${commentSuffix}`,
+            amount: amountVal,
+            category: 'Transfer',
+            date: formData.date,
+            accountId: formData.transferTargetId
+        });
+    } else {
+        // Receive Logic: Credit Current, Debit Target
+        await addTransaction({
+            description: `Transfer from ${targetName}${commentSuffix}`,
+            amount: amountVal,
+            category: 'Transfer',
+            date: formData.date,
+            accountId: selectedAccountId
+        });
+        await addTransaction({
+            description: `Transfer to ${currentName}${commentSuffix}`,
+            amount: -amountVal,
+            category: 'Transfer',
+            date: formData.date,
+            accountId: formData.transferTargetId
+        });
+    }
 
     setFormData({
-      description: '',
       amount: '',
-      category: 'Operation',
-      date: new Date().toISOString().split('T')[0]
+      date: new Date().toISOString().split('T')[0],
+      transferTargetId: '',
+      transferDirection: 'out',
+      comment: ''
     });
     setIsAddModalOpen(false);
   };
@@ -113,12 +146,13 @@ const Ledger: React.FC = () => {
             <Download size={18} />
             <span>Export</span>
           </button>
+          
           <button 
             onClick={() => setIsAddModalOpen(true)}
             className="flex-1 md:flex-none flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-2xl font-bold shadow-lg shadow-blue-200 transition-all hover:-translate-y-1"
           >
-            <Plus size={18} />
-            <span>Add Entry</span>
+            <ArrowRightLeft size={18} />
+            <span>Transfer Funds</span>
           </button>
         </div>
       </div>
@@ -181,35 +215,67 @@ const Ledger: React.FC = () => {
         </div>
       </div>
 
-      {/* Add Transaction Modal */}
+      {/* Transfer Funds Modal */}
       {isAddModalOpen && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={() => setIsAddModalOpen(false)} />
           <div className="relative bg-white w-full max-w-md rounded-[2.5rem] shadow-2xl p-8 animate-in fade-in zoom-in duration-200">
             <div className="flex justify-between items-center mb-6">
-              <h2 className="text-2xl font-bold text-slate-900">New Entry</h2>
+              <h2 className="text-2xl font-bold text-slate-900">Transfer Funds</h2>
               <button onClick={() => setIsAddModalOpen(false)} className="p-2 hover:bg-slate-100 rounded-full text-slate-400 transition-colors">
                 <X size={20} />
               </button>
             </div>
 
             <form onSubmit={handleSubmit} className="space-y-5">
-              <div className="space-y-1.5">
-                <label className="text-xs font-bold text-slate-400 uppercase tracking-widest ml-1">Description</label>
-                <div className="relative">
-                  <FileText className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-300" size={18} />
-                  <input 
-                    autoFocus
-                    required
-                    type="text"
-                    placeholder="e.g. Payment from Supplier"
-                    value={formData.description}
-                    onChange={e => setFormData({...formData, description: e.target.value})}
-                    className="w-full h-12 pl-12 pr-5 bg-slate-50 border-none rounded-xl text-slate-900 placeholder-slate-400 focus:ring-2 focus:ring-blue-500 transition-all font-medium"
-                  />
-                </div>
+              
+              {/* Direction Toggle */}
+              <div className="grid grid-cols-2 gap-3 mb-2">
+                <button
+                  type="button"
+                  onClick={() => setFormData({...formData, transferDirection: 'out'})}
+                  className={`p-3 rounded-xl border-2 flex flex-col items-center gap-2 transition-all ${
+                    formData.transferDirection === 'out' 
+                      ? 'border-blue-500 bg-blue-50 text-blue-600' 
+                      : 'border-slate-100 text-slate-400'
+                  }`}
+                >
+                  <ArrowUpRight size={20} />
+                  <span className="text-xs font-bold uppercase">Sending To</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setFormData({...formData, transferDirection: 'in'})}
+                  className={`p-3 rounded-xl border-2 flex flex-col items-center gap-2 transition-all ${
+                    formData.transferDirection === 'in' 
+                      ? 'border-emerald-500 bg-emerald-50 text-emerald-600' 
+                      : 'border-slate-100 text-slate-400'
+                  }`}
+                >
+                  <ArrowDownLeft size={20} />
+                  <span className="text-xs font-bold uppercase">Receiving From</span>
+                </button>
               </div>
 
+              {/* Target Account Selection */}
+              <div className="space-y-1.5">
+                <label className="text-xs font-bold text-slate-400 uppercase tracking-widest ml-1">
+                  {formData.transferDirection === 'out' ? 'Destination Account' : 'Source Account'}
+                </label>
+                <select
+                  required
+                  value={formData.transferTargetId}
+                  onChange={e => setFormData({...formData, transferTargetId: e.target.value})}
+                  className="w-full h-12 px-4 bg-slate-50 border-none rounded-xl text-slate-900 focus:ring-2 focus:ring-blue-500 transition-all font-bold appearance-none"
+                >
+                  <option value="">Select Account...</option>
+                  {otherAccounts.map(acc => (
+                    <option key={acc.id} value={acc.id}>{acc.name} ({acc.type})</option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Amount and Date */}
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-1.5">
                   <label className="text-xs font-bold text-slate-400 uppercase tracking-widest ml-1">Amount</label>
@@ -219,6 +285,7 @@ const Ledger: React.FC = () => {
                       required
                       type="number"
                       step="0.01"
+                      min="0"
                       placeholder="0.00"
                       value={formData.amount}
                       onChange={e => setFormData({...formData, amount: e.target.value})}
@@ -238,28 +305,26 @@ const Ledger: React.FC = () => {
                 </div>
               </div>
 
+              {/* NEW: Comment Section */}
               <div className="space-y-1.5">
-                <label className="text-xs font-bold text-slate-400 uppercase tracking-widest ml-1">Category</label>
-                <select 
-                  value={formData.category}
-                  onChange={e => setFormData({...formData, category: e.target.value})}
-                  className="w-full h-12 px-4 bg-slate-50 border-none rounded-xl text-slate-900 focus:ring-2 focus:ring-blue-500 transition-all font-medium appearance-none"
-                >
-                  <option>Operation</option>
-                  <option>Inventory</option>
-                  <option>Payroll</option>
-                  <option>Revenue</option>
-                  <option>Marketing</option>
-                  <option>Utilities</option>
-                  <option>Other</option>
-                </select>
+                <label className="text-xs font-bold text-slate-400 uppercase tracking-widest ml-1">Comment (Optional)</label>
+                <div className="relative">
+                  <FileText className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-300" size={18} />
+                  <input 
+                    type="text"
+                    placeholder="e.g. Monthly Savings"
+                    value={formData.comment}
+                    onChange={e => setFormData({...formData, comment: e.target.value})}
+                    className="w-full h-12 pl-12 pr-5 bg-slate-50 border-none rounded-xl text-slate-900 placeholder-slate-400 focus:ring-2 focus:ring-blue-500 transition-all font-medium"
+                  />
+                </div>
               </div>
 
               <button 
                 type="submit"
                 className="w-full h-14 bg-blue-600 text-white rounded-2xl font-bold shadow-lg shadow-blue-200 transition-all hover:bg-blue-700 hover:-translate-y-0.5 mt-4"
               >
-                Add Transaction
+                Confirm Transfer
               </button>
             </form>
           </div>
