@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { useApp } from '../context/AppContext';
 import { 
@@ -32,7 +31,8 @@ import {
   ShoppingBag,
   Flame,
   Truck,
-  Package
+  Package,
+  ListFilter
 } from 'lucide-react';
 import { ShiftInjection, ShiftExpense, CreditBillEntry } from '../types';
 
@@ -53,9 +53,7 @@ const DailyOps: React.FC = () => {
   
   const [activeMenu, setActiveMenu] = useState<string | null>(null);
 
-  const lastShift = shifts.find(s => s.status === 'closed');
-  const lastActualCash = lastShift?.actualCash || 0;
-
+  // Note: We no longer rely on lastShift.actualCash for carry forward, but strictly on the Account Balance.
   const isConfigComplete = Object.values(flowConfig).every(val => val !== '');
 
   // If no active shift is found, we show the "Start Shift" screen.
@@ -80,9 +78,9 @@ const DailyOps: React.FC = () => {
         {showOpenModal && (
           <ShiftStartModal 
             onClose={() => setShowOpenModal(false)} 
-            lastActualCash={lastActualCash}
             onStart={startShift}
             accounts={accounts}
+            flowConfig={flowConfig}
           />
         )}
       </div>
@@ -112,6 +110,7 @@ const DailyOps: React.FC = () => {
     try {
       await closeShift(actualCash);
       setShowCloseModal(false);
+      // The component will naturally re-render to the "Shift is Closed" state because activeShift becomes null
     } catch (error) {
       console.error("Sweep failed", error);
       alert("Error executing sweep. Please check your account connections.");
@@ -139,7 +138,7 @@ const DailyOps: React.FC = () => {
         </div>
       )}
 
-      {/* Main Header Card - Updated Design */}
+      {/* Main Header Card */}
       <div className="bg-white rounded-[2.5rem] p-8 shadow-sm border border-slate-100 flex flex-col md:flex-row md:items-center justify-between gap-6 relative overflow-hidden">
         <div className="flex items-center gap-6 z-10">
           <div className="w-16 h-16 bg-blue-600 rounded-[1.5rem] flex items-center justify-center text-white shadow-lg shadow-blue-100">
@@ -223,7 +222,7 @@ const DailyOps: React.FC = () => {
       {activeMenu === 'bills' && <BillsModal targetAccount={getAccountName(flowConfig.billsAccount)} current={activeShift.creditBills} customers={customers} onClose={()=>setActiveMenu(null)} onSave={(val: any)=>updateActiveShift({creditBills: val})} />}
       {activeMenu === 'expenses' && <ExpensesModal targetAccount={getAccountName(flowConfig.cashAccount)} current={activeShift.expenses} onClose={()=>setActiveMenu(null)} onSave={(val: any)=>updateActiveShift({expenses: val})} />}
       
-      {showCalcModal && <CashCalcModal onClose={() => setShowCalcModal(false)} onFinalize={() => setShowCloseModal(true)} />}
+      {showCalcModal && <CashCalcModal expectedAmount={activeShift.expectedCash} onClose={() => setShowCalcModal(false)} onFinalize={() => setShowCloseModal(true)} />}
       {showCloseModal && <CloseShiftModal activeShift={activeShift} isProcessing={isProcessing} onClose={() => setShowCloseModal(false)} onConfirm={handleFinalClose} />}
     </div>
   );
@@ -243,16 +242,21 @@ const IconRenderer = ({ name, size = 10 }: { name: string, size?: number }) => {
   }
 };
 
-// Shift Initialization Modal Component
-const ShiftStartModal = ({ onClose, lastActualCash, onStart, accounts }: any) => {
+// Shift Initialization Modal Component - UPDATED
+const ShiftStartModal = ({ onClose, onStart, accounts, flowConfig }: any) => {
   const [accountingDate, setAccountingDate] = useState(new Date().toISOString().split('T')[0]);
   const [injectedAmount, setInjectedAmount] = useState('');
   const [injectedSourceId, setInjectedSourceId] = useState('');
 
-  const liquidAccounts = accounts.filter((a: any) => ['cash', 'bank', 'asset'].includes(a.type));
+  // Find the Main Cash Till account to deduce the carry forward
+  // We prefer the ID from flowConfig, but fallback to searching by name "Main Cash Till"
+  const mainTillAccount = accounts.find((a: any) => a.id === flowConfig?.cashAccount) || accounts.find((a: any) => a.name === "Main Cash Till");
+  const carryForward = mainTillAccount ? mainTillAccount.balance : 0;
+
+  const liquidAccounts = accounts.filter((a: any) => ['cash', 'bank', 'asset'].includes(a.type) && a.id !== mainTillAccount?.id);
   
   const currentInjectedValue = parseFloat(injectedAmount) || 0;
-  const totalOpeningFloatValue = lastActualCash + currentInjectedValue;
+  const totalOpeningFloatValue = carryForward + currentInjectedValue;
 
   const handleStart = () => {
     const injections = [];
@@ -317,22 +321,25 @@ const ShiftStartModal = ({ onClose, lastActualCash, onStart, accounts }: any) =>
              </div>
           </div>
 
-          {/* Float Carry Forward (Display Only) */}
+          {/* Float Carry Forward (Updated to use Account Balance) */}
           <div className="p-5 bg-blue-50 rounded-3xl border border-blue-100">
             <div className="flex items-center justify-between mb-1">
-              <label className="text-[10px] font-black text-blue-400 uppercase tracking-widest">Float Carry Forward</label>
+              <label className="text-[10px] font-black text-blue-400 uppercase tracking-widest">Main Till Balance</label>
               <div className="flex items-center gap-1 text-[8px] font-black text-blue-600 bg-white px-2 py-0.5 rounded-lg shadow-sm border border-blue-50">
-                <CheckCircle2 size={10} />
-                ACTUAL
+                <Wallet size={10} />
+                LIVE BALANCE
               </div>
             </div>
             <div className="flex items-center justify-between">
-              <span className="text-2xl font-black text-blue-700">${lastActualCash.toLocaleString()}</span>
-              <div className="p-2 bg-blue-100 rounded-xl text-blue-600"><Wallet size={18} /></div>
+              <span className="text-2xl font-black text-blue-700">${carryForward.toLocaleString()}</span>
+              {/* Optional: Show account name if found, else warning */}
+              <span className="text-[9px] font-bold text-blue-300 uppercase tracking-wide">
+                {mainTillAccount ? 'Account Linked' : 'Account Not Found'}
+              </span>
             </div>
           </div>
 
-          {/* Total Opening Float (Display Only - Non-editable as requested) */}
+          {/* Total Opening Float */}
           <div className="space-y-2 pt-2">
             <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Initial Opening Float</label>
             <div className="w-full h-14 px-6 bg-slate-100 border border-slate-200 rounded-2xl flex items-center justify-between opacity-80">
@@ -641,7 +648,8 @@ const ExpensesModal = ({ current, targetAccount, onClose, onSave }: any) => {
   );
 };
 
-const CashCalcModal = ({ onClose, onFinalize }: any) => {
+// CashCalcModal - UPDATED (Compact & Expected Value)
+const CashCalcModal = ({ onClose, onFinalize, expectedAmount = 0 }: any) => {
   const [counts, setCounts] = useState<any>({ 5000: 0, 2000: 0, 1000: 0, 500: 0, 100: 0, 50: 0, 20: 0, coins: 0 });
   const total = Object.entries(counts).reduce((sum, [den, count]: any) => den === 'coins' ? sum + count : sum + (parseInt(den) * count), 0);
 
@@ -649,22 +657,38 @@ const CashCalcModal = ({ onClose, onFinalize }: any) => {
     <div className="fixed inset-0 z-[101] flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-md" onClick={onClose} />
       <div className="relative bg-white w-full max-w-md rounded-[2.5rem] shadow-2xl p-8 max-h-[90vh] overflow-y-auto">
-        <div className="flex items-center justify-between mb-8">
+        <div className="flex items-center justify-between mb-6">
           <h2 className="text-2xl font-black text-slate-900">Actual Cash Count</h2>
           <button onClick={onClose}><X size={24} className="text-slate-400" /></button>
         </div>
-        <div className="grid grid-cols-1 gap-2 mb-8">
+
+        {/* Header Summary for Live Comparison */}
+        <div className="flex items-center justify-between p-4 bg-slate-50 rounded-2xl mb-6">
+           <div className="text-center">
+             <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Expected</p>
+             <p className="text-lg font-black text-slate-500">${expectedAmount.toLocaleString()}</p>
+           </div>
+           <div className="h-8 w-px bg-slate-200"></div>
+           <div className="text-center">
+             <p className="text-[10px] font-black text-blue-400 uppercase tracking-widest">Counted</p>
+             <p className={`text-lg font-black ${total === expectedAmount ? 'text-emerald-600' : 'text-blue-600'}`}>${total.toLocaleString()}</p>
+           </div>
+        </div>
+
+        {/* Compact Grid Layout for Inputs */}
+        <div className="grid grid-cols-2 gap-3 mb-8">
           {[5000, 2000, 1000, 500, 100, 50, 20].map((den) => (
-            <div key={den} className="flex items-center gap-4 bg-slate-50 p-4 rounded-2xl">
-              <div className="w-16 font-black text-slate-400 text-xs uppercase">{den}s</div>
-              <input type="number" className="flex-1 bg-transparent border-none text-right font-black text-xl focus:ring-0 outline-none" value={counts[den] || ''} onChange={(e) => setCounts({...counts, [den]: parseInt(e.target.value) || 0})} />
+            <div key={den} className="flex items-center gap-2 bg-slate-50 px-3 py-3 rounded-2xl">
+              <div className="w-10 font-black text-slate-400 text-[10px] uppercase text-right">{den}</div>
+              <input type="number" className="flex-1 bg-transparent border-none text-right font-black text-lg focus:ring-0 outline-none p-0" value={counts[den] || ''} onChange={(e) => setCounts({...counts, [den]: parseInt(e.target.value) || 0})} />
             </div>
           ))}
-          <div className="flex items-center gap-4 bg-slate-50 p-4 rounded-2xl">
-            <div className="w-16 font-black text-slate-400 text-xs uppercase">Coins</div>
+          <div className="col-span-2 flex items-center gap-4 bg-slate-50 p-3 rounded-2xl">
+            <div className="w-16 font-black text-slate-400 text-xs uppercase pl-2">Coins</div>
             <input type="number" className="flex-1 bg-transparent border-none text-right font-black text-xl focus:ring-0 outline-none" value={counts.coins || ''} onChange={(e) => setCounts({...counts, coins: parseFloat(e.target.value) || 0})} />
           </div>
         </div>
+
         <div className="sticky bottom-0 bg-slate-900 text-white p-6 rounded-[2rem] flex flex-col items-center">
           <p className="text-[10px] font-black uppercase tracking-widest opacity-50 mb-1">Final Count</p>
           <p className="text-4xl font-black mb-6">${total.toLocaleString()}</p>
@@ -675,33 +699,67 @@ const CashCalcModal = ({ onClose, onFinalize }: any) => {
   );
 };
 
+// CloseShiftModal - UPDATED (Breakdown & Variance Signs)
 const CloseShiftModal = ({ activeShift, isProcessing, onClose, onConfirm }: any) => {
   const lastCalc = localStorage.getItem('mozza_last_calc_total');
   const [actual, setActual] = useState(lastCalc || '');
-  const diff = (parseFloat(actual) || 0) - activeShift.expectedCash;
+  
+  const actualVal = parseFloat(actual) || 0;
+  const diff = actualVal - activeShift.expectedCash;
+  const absDiff = Math.abs(diff);
+
+  // Derive values for waterfall breakdown
+  const totalBills = activeShift.creditBills.reduce((a: number, b: any) => a + b.amount, 0);
+  const totalNonCash = activeShift.cards + activeShift.hikingBar + activeShift.foreignCurrency.value + totalBills;
+  const netCashSales = activeShift.totalSales - totalNonCash;
+  const totalExpenses = activeShift.expenses.reduce((s: number, e: any) => s + e.amount, 0);
 
   return (
     <div className="fixed inset-0 z-[110] flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-slate-900/80 backdrop-blur-lg" onClick={onClose} />
       <div className="relative bg-white w-full max-w-lg rounded-[2.5rem] shadow-2xl p-8 max-h-[95vh] overflow-y-auto">
-        <h2 className="text-2xl font-black text-slate-900 mb-8">Shift Closure Summary</h2>
+        <h2 className="text-2xl font-black text-slate-900 mb-6">Shift Closure Summary</h2>
+        
         <div className="space-y-6 mb-8">
-          <div className="flex justify-between text-sm font-bold text-slate-500">
-            <span>Calculated Expected Cash</span>
-            <span className="text-slate-900 font-black">${activeShift.expectedCash.toLocaleString()}</span>
+          
+          {/* Waterfall Breakdown */}
+          <div className="bg-slate-50 p-5 rounded-3xl space-y-3">
+             <div className="flex justify-between items-center text-xs font-bold text-slate-400">
+               <span>Opening Float</span>
+               <span>${activeShift.openingFloat.toLocaleString()}</span>
+             </div>
+             <div className="flex justify-between items-center text-xs font-bold text-emerald-600">
+               <span className="flex items-center gap-1"><PlusCircle size={10} /> Net Cash Sales</span>
+               <span>+${netCashSales.toLocaleString()}</span>
+             </div>
+             <div className="flex justify-between items-center text-xs font-bold text-red-500">
+               <span className="flex items-center gap-1"><Minus size={10} /> Expenses</span>
+               <span>-${totalExpenses.toLocaleString()}</span>
+             </div>
+             <div className="h-px bg-slate-200 my-1"></div>
+             <div className="flex justify-between items-center font-black text-slate-900">
+               <span className="uppercase text-[10px] tracking-widest">Calculated Expected</span>
+               <span>${activeShift.expectedCash.toLocaleString()}</span>
+             </div>
           </div>
+
           <div className="p-6 bg-slate-50 rounded-3xl border border-slate-100">
             <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2">Verified Handover Cash</label>
-            <span className="text-3xl font-black text-slate-900">${(parseFloat(actual)||0).toLocaleString()}</span>
+            <span className="text-3xl font-black text-slate-900">${actualVal.toLocaleString()}</span>
           </div>
-          <div className={`p-6 rounded-3xl flex items-center justify-between ${diff === 0 ? 'bg-emerald-50 text-emerald-600' : 'bg-red-50 text-red-600'}`}>
+
+          {/* Variance Display with Signs */}
+          <div className={`p-6 rounded-3xl flex items-center justify-between ${diff === 0 ? 'bg-emerald-50 text-emerald-600' : diff > 0 ? 'bg-green-50 text-green-600' : 'bg-red-50 text-red-600'}`}>
             <div>
               <p className="text-[10px] font-black uppercase tracking-widest opacity-60">Cash Variance</p>
-              <p className="text-xl font-black">${diff.toLocaleString()}</p>
+              <p className="text-xl font-black">
+                {diff === 0 ? 'Perfect Match' : diff > 0 ? `+$${absDiff.toLocaleString()} (Over)` : `-$${absDiff.toLocaleString()} (Short)`}
+              </p>
             </div>
             {diff === 0 ? <CheckCircle2 size={32} /> : <AlertCircle size={32} />}
           </div>
         </div>
+
         <div className="grid grid-cols-2 gap-3">
           <button 
             disabled={isProcessing}

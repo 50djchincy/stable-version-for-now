@@ -132,7 +132,7 @@ const MoneyLab: React.FC = () => {
         </div>
       </div>
 
-      {/* Account Type Grid (Unchanged) */}
+      {/* Account Type Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         {accountTypes.map((type) => {
           const count = accounts.filter(a => a.type === type.id).length;
@@ -154,7 +154,7 @@ const MoneyLab: React.FC = () => {
         })}
       </div>
 
-      {/* Account Lists (Unchanged) */}
+      {/* Account Lists */}
       <div className="space-y-10">
         {accountTypes.map((type) => (
           <div key={type.id + "_list"} className="space-y-4">
@@ -207,7 +207,7 @@ const MoneyLab: React.FC = () => {
         />
       )}
 
-      {/* Create Account Modal (Unchanged) */}
+      {/* Create Account Modal */}
       {isModalOpen && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={() => setIsModalOpen(false)} />
@@ -292,7 +292,7 @@ const PortalContainer: React.FC<{ type: string; onClose: () => void; accounts: a
   const titles = {
     card_bills: 'Card & Bank Settlements',
     bar_sales: 'Bar Sales Logic',
-    bills_rec: 'Bills Receivable Center'
+    bills_rec: 'Bills Received Portal'
   };
 
   const colors = {
@@ -331,43 +331,51 @@ const PortalContainer: React.FC<{ type: string; onClose: () => void; accounts: a
   );
 };
 
-// --- CARD BILLS PORTAL (Gross Settlement Logic) ---
+// --- CARD BILLS PORTAL (Single Account - Hides Settled Batches) ---
+// --- CARD BILLS PORTAL (Fee Deduction & Settlement) ---
 const CardBillsPortal = ({ accounts, transactions, onSettle, onClose }: any) => {
-  const [sourceId, setSourceId] = useState<string>('');
-  const [destId, setDestId] = useState<string>('');
-  const [expenseId, setExpenseId] = useState<string>('');
+  const [targetAccountId, setTargetAccountId] = useState<string>('');
   const [selectedTxIds, setSelectedTxIds] = useState<string[]>([]);
   const [receivedAmount, setReceivedAmount] = useState('');
 
-  // Save/Load Settings
+  // Load saved account selection
   useEffect(() => {
     const saved = localStorage.getItem('mozza_portal_card');
     if (saved) {
       const config = JSON.parse(saved);
-      if (config.source) setSourceId(config.source);
-      if (config.dest) setDestId(config.dest);
-      if (config.expense) setExpenseId(config.expense);
+      if (config.targetAccount) setTargetAccountId(config.targetAccount);
     }
   }, []);
 
   const saveSettings = () => {
-    localStorage.setItem('mozza_portal_card', JSON.stringify({ source: sourceId, dest: destId, expense: expenseId }));
+    localStorage.setItem('mozza_portal_card', JSON.stringify({ targetAccount: targetAccountId }));
   };
 
-  const potentialSources = accounts.filter((a: any) => ['receivable', 'asset', 'bank'].includes(a.type));
-  const potentialDests = accounts.filter((a: any) => ['bank', 'cash', 'asset'].includes(a.type));
-  const potentialExpenses = accounts.filter((a: any) => ['payable', 'expense', 'income'].includes(a.type)); 
+  const potentialTargetAccounts = accounts.filter((a: any) => ['bank', 'asset', 'cash', 'receivable'].includes(a.type));
 
+  // Filter: Show Shift Batches that are NOT yet settled (No "Bank Fee" entry exists for them)
   const availableTx = useMemo(() => {
-    if (!sourceId) return [];
-    return transactions
-      .filter((t: Transaction) => 
-        t.accountId === sourceId && 
-        t.amount > 0 &&
-        t.shiftId // STRICTLY FILTER for Daily Ops Shifts
-      )
-      .sort((a: any, b: any) => new Date(b.date).getTime() - new Date(a.date).getTime());
-  }, [sourceId, transactions]);
+    if (!targetAccountId) return [];
+
+    const accountTx = transactions.filter((t: Transaction) => t.accountId === targetAccountId && t.shiftId);
+    const shiftGroups: Record<string, Transaction[]> = {};
+
+    accountTx.forEach((t: Transaction) => {
+      if(!t.shiftId) return;
+      if(!shiftGroups[t.shiftId]) shiftGroups[t.shiftId] = [];
+      shiftGroups[t.shiftId].push(t);
+    });
+
+    return Object.values(shiftGroups)
+      .filter((group: Transaction[]) => {
+        // If a "Bank Fee" entry exists for this shift, it's already settled -> Hide it
+        const hasFee = group.some((t: Transaction) => t.category === 'Bank Fee');
+        return !hasFee;
+      })
+      .map((group: Transaction[]) => group.find((t: Transaction) => t.amount > 0)) // Get main entry
+      .filter((t): t is Transaction => t !== undefined)
+      .sort((a: Transaction, b: Transaction) => new Date(b.date).getTime() - new Date(a.date).getTime());
+  }, [targetAccountId, transactions]);
 
   const toggleTx = (id: string) => {
     if (selectedTxIds.includes(id)) setSelectedTxIds(prev => prev.filter(x => x !== id));
@@ -379,106 +387,77 @@ const CardBillsPortal = ({ accounts, transactions, onSettle, onClose }: any) => 
     return sum + (tx?.amount || 0);
   }, 0);
 
+  // Auto-Calculate Fee: Gross - Net
   const fee = totalSelected - (parseFloat(receivedAmount) || 0);
   const feePercent = totalSelected > 0 ? (fee / totalSelected) * 100 : 0;
 
   const handleSettle = async () => {
-    if (!receivedAmount || !sourceId || !destId || !expenseId) return;
+    if (!receivedAmount || !targetAccountId) return;
     saveSettings();
     const now = new Date().toISOString();
 
-    // 1. Credit Source (Reduce Pending) - Full Amount
-    await onSettle({
-      description: `Settlement Batch: ${selectedTxIds.length} Txns`,
-      amount: -totalSelected,
-      category: 'Transfer',
-      date: now,
-      accountId: sourceId
-    });
+    // Link the Fee to the Shift ID so the filter knows this batch is done
+    const firstTx = availableTx.find((t: any) => t.id === selectedTxIds[0]);
+    const shiftId = firstTx?.shiftId;
 
-    // 2. Debit Destination - Full Gross Amount (To show full income in ledger)
-    await onSettle({
-      description: `Gross Settlement Received`,
-      amount: totalSelected, 
-      category: 'Settlement',
-      date: now,
-      accountId: destId
-    });
-
-    // 3. Credit Destination - Bank Fee Deduction (Money leaving bank)
     if (fee !== 0) {
-       // This creates the "Expense made the amount" effect in the Bank Ledger
-       // Entry 1: +$100 (Gross)
-       // Entry 2: -$5 (Fee)
+       // Record the Fee Deduction
        await onSettle({
-        description: `Bank Fee Deduction`,
-        amount: -fee,
-        category: 'Bank Fee',
+        description: `Credit Card Fees (Adjust to ${parseFloat(receivedAmount).toLocaleString()})`,
+        amount: -fee, 
+        category: 'Bank Fee', // This category triggers the "Hide" logic
         date: now,
-        accountId: destId
+        accountId: targetAccountId,
+        shiftId 
       });
-
-      // 4. Debit Expense Account (Record the Cost)
-      // Note: addTransaction usually handles single account updates. 
-      // Since we just reduced DestId, we need to Record the Expense in the Expense Account too?
-      // Our `addTransaction` hook in AppContext usually updates the balance of the `accountId` passed.
-      // So to increase the Expense Account balance (cost), we add positive or negative depending on account type.
-      // Usually expenses are positive balance (Cost).
-      await onSettle({
-        description: `Settlement Fee Cost`,
-        amount: fee, 
-        category: 'Bank Fee',
-        date: now,
-        accountId: expenseId
-      });
+    } else {
+        // Even if 0 fee, record a "Verification" entry to mark it as settled
+        await onSettle({
+            description: `Settlement Verified (No Fee)`,
+            amount: 0, 
+            category: 'Bank Fee',
+            date: now,
+            accountId: targetAccountId,
+            shiftId
+        });
     }
-
+    
     onClose();
   };
 
   return (
     <div className="space-y-6">
-      {/* Settings Bar */}
+      {/* Configuration */}
       <div className="bg-white p-5 rounded-[2rem] border border-slate-200 shadow-sm">
          <div className="flex items-center gap-2 mb-3 text-slate-400">
            <SettingsIcon size={14} />
            <p className="text-xs font-black uppercase tracking-widest">Portal Configuration</p>
          </div>
-         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div className="space-y-1">
-              <label className="text-[10px] font-bold text-slate-400 uppercase ml-1">Pending Source</label>
-              <select className="w-full p-3 bg-slate-50 rounded-xl font-bold text-sm outline-none focus:ring-2 focus:ring-purple-100" value={sourceId} onChange={e=>setSourceId(e.target.value)}>
-                <option value="">Select Pending Account...</option>
-                {potentialSources.map((a:any) => <option key={a.id} value={a.id}>{a.name}</option>)}
-              </select>
-            </div>
-            <div className="space-y-1">
-              <label className="text-[10px] font-bold text-slate-400 uppercase ml-1">Bank Destination</label>
-              <select className="w-full p-3 bg-slate-50 rounded-xl font-bold text-sm outline-none focus:ring-2 focus:ring-purple-100" value={destId} onChange={e=>setDestId(e.target.value)}>
-                <option value="">Select Bank Account...</option>
-                {potentialDests.map((a:any) => <option key={a.id} value={a.id}>{a.name}</option>)}
-              </select>
-            </div>
-            <div className="space-y-1">
-              <label className="text-[10px] font-bold text-slate-400 uppercase ml-1">Fee Expense Account</label>
-              <select className="w-full p-3 bg-slate-50 rounded-xl font-bold text-sm outline-none focus:ring-2 focus:ring-purple-100" value={expenseId} onChange={e=>setExpenseId(e.target.value)}>
-                <option value="">Select Expense Ledger...</option>
-                {potentialExpenses.map((a:any) => <option key={a.id} value={a.id}>{a.name}</option>)}
-              </select>
-            </div>
+         <div className="space-y-1">
+            <label className="text-[10px] font-bold text-slate-400 uppercase ml-1">Account with Pending Funds</label>
+            <select 
+              className="w-full p-3 bg-purple-50 text-purple-700 rounded-xl font-bold text-sm outline-none focus:ring-2 focus:ring-purple-200" 
+              value={targetAccountId} 
+              onChange={e=>setTargetAccountId(e.target.value)}
+            >
+              <option value="">Select Account...</option>
+              {potentialTargetAccounts.map((a:any) => <option key={a.id} value={a.id}>{a.name}</option>)}
+            </select>
          </div>
       </div>
 
       <div className="flex flex-col lg:flex-row gap-6">
-        {/* Transaction List */}
+        {/* List */}
         <div className="flex-1 space-y-3">
            <div className="flex justify-between items-end px-2">
-             <h3 className="font-bold text-slate-700">Select Pending Transactions</h3>
+             <h3 className="font-bold text-slate-700">Select Pending Batches</h3>
              <span className="text-xs font-bold text-slate-400">{selectedTxIds.length} Selected</span>
            </div>
            <div className="bg-white rounded-[2rem] border border-slate-200 overflow-hidden max-h-[400px] overflow-y-auto">
              {availableTx.length === 0 ? (
-               <div className="p-12 text-center text-slate-400 text-sm font-medium">Select a source account to view pending shift items</div>
+               <div className="p-12 text-center text-slate-400 text-sm font-medium">
+                 {targetAccountId ? "No pending transactions found." : "Select an account to start."}
+               </div>
              ) : (
                availableTx.map((tx: any) => (
                  <div 
@@ -505,21 +484,21 @@ const CardBillsPortal = ({ accounts, transactions, onSettle, onClose }: any) => 
            </div>
         </div>
 
-        {/* Calculator Panel */}
+        {/* Calculator */}
         <div className="w-full lg:w-96 bg-white p-6 rounded-[2rem] border border-slate-200 shadow-xl h-fit">
           <h3 className="font-black text-xl text-slate-900 mb-6 flex items-center gap-2">
             <Calculator className="text-purple-500" />
-            Settlement Calc
+            Fee Calculator
           </h3>
           
           <div className="space-y-5">
             <div className="flex justify-between items-center px-1">
-              <span className="text-xs font-bold text-slate-500 uppercase tracking-widest">Pending Total</span>
+              <span className="text-xs font-bold text-slate-500 uppercase tracking-widest">Gross Total</span>
               <span className="text-2xl font-black text-slate-900">${totalSelected.toLocaleString()}</span>
             </div>
 
             <div className="space-y-2">
-              <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Actual Amount Received</label>
+              <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Net Received (Bank)</label>
               <div className="relative">
                 <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 font-bold">$</span>
                 <input 
@@ -534,7 +513,7 @@ const CardBillsPortal = ({ accounts, transactions, onSettle, onClose }: any) => 
 
             <div className="p-5 bg-slate-50 rounded-2xl space-y-3 border border-slate-100">
               <div className="flex justify-between items-center text-sm">
-                 <span className="font-bold text-slate-500">Bank Fee (Calc)</span>
+                 <span className="font-bold text-slate-500">Credit Card Fees</span>
                  <span className={`font-black ${fee > 0 ? 'text-red-500' : 'text-slate-900'}`}>${fee.toFixed(2)}</span>
               </div>
               <div className="flex justify-between items-center text-sm">
@@ -544,42 +523,43 @@ const CardBillsPortal = ({ accounts, transactions, onSettle, onClose }: any) => 
             </div>
 
             <button 
-              disabled={!receivedAmount || totalSelected === 0 || !sourceId || !destId || !expenseId}
+              disabled={!receivedAmount || totalSelected === 0 || !targetAccountId}
               onClick={handleSettle}
               className="w-full py-4 bg-slate-900 text-white rounded-2xl font-black shadow-xl shadow-slate-200 active:scale-95 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
             >
               <CheckCircle2 size={20} />
-              CONFIRM & SETTLE
+              CONFIRM FEES
             </button>
-            
-            {(!sourceId || !destId || !expenseId) && (
-              <p className="text-[10px] text-center text-red-400 font-bold uppercase">Configure all accounts above to proceed</p>
-            )}
           </div>
         </div>
       </div>
     </div>
   );
 };
-
-// --- BAR SALES PORTAL (Distribution Logic) ---
+// --- BAR SALES PORTAL (Simplifed Source Deduction - Hides Balanced) ---
+// --- BAR SALES PORTAL (Distribution & Deductions) ---
 const BarSalesPortal = ({ accounts, transactions, onSettle, onClose }: any) => {
   const [settings, setSettings] = useState({
     sourceId: '',
-    primaryDestId: '', // Changed to Primary Receiving Account
-    cardDestId: '',
-    svcId: '',
-    drinksId: ''
+    cashDestId: '',
+    cardDestId: ''
   });
   
   const [selectedTx, setSelectedTx] = useState<Transaction | null>(null);
-  
-  // Split State
-  const [splits, setSplits] = useState({ card: '', svc: '', drinks: '' });
+  // Service Charge ('svc') is part of the split state
+  const [splits, setSplits] = useState({ cash: '', card: '', svc: '', drinks: '' });
 
+  // Load Settings
   useEffect(() => {
     const saved = localStorage.getItem('mozza_portal_bar');
-    if (saved) setSettings(JSON.parse(saved));
+    if (saved) {
+      const parsed = JSON.parse(saved);
+      setSettings({
+        sourceId: parsed.sourceId || '',
+        cashDestId: parsed.cashDestId || '',
+        cardDestId: parsed.cardDestId || ''
+      });
+    }
   }, []);
 
   const saveSettings = (newSettings: any) => {
@@ -588,141 +568,160 @@ const BarSalesPortal = ({ accounts, transactions, onSettle, onClose }: any) => {
   };
 
   const potentialSources = accounts.filter((a: any) => ['receivable', 'asset'].includes(a.type));
-  const potentialDests = accounts.filter((a: any) => ['cash', 'bank', 'asset'].includes(a.type));
-  const potentialExpenses = accounts.filter((a: any) => ['expense', 'payable'].includes(a.type));
+  const potentialCashDests = accounts.filter((a: any) => ['cash', 'bank', 'asset'].includes(a.type));
+  const potentialCardDests = accounts.filter((a: any) => ['receivable', 'bank', 'asset'].includes(a.type));
 
+  // Filter: Only show shifts where the Source Account still has a positive balance (Net > 0)
   const availableTx = useMemo(() => {
     if (!settings.sourceId) return [];
-    return transactions
-      .filter((t: Transaction) => 
-        t.accountId === settings.sourceId && 
-        t.amount > 0 &&
-        t.shiftId // STRICTLY FILTER for Daily Ops Shifts
-      )
+
+    const accountTx = transactions.filter((t: Transaction) => t.accountId === settings.sourceId && t.shiftId);
+    const shiftBalances: Record<string, number> = {};
+    const mainEntry: Record<string, Transaction> = {};
+
+    accountTx.forEach((t: Transaction) => {
+      if (!t.shiftId) return;
+      if (!shiftBalances[t.shiftId]) shiftBalances[t.shiftId] = 0;
+      shiftBalances[t.shiftId] += t.amount;
+      
+      if (t.amount > 0) mainEntry[t.shiftId] = t;
+    });
+
+    return Object.keys(shiftBalances)
+      .filter(shiftId => shiftBalances[shiftId] > 0.01 && mainEntry[shiftId])
+      .map(shiftId => mainEntry[shiftId])
       .sort((a: any, b: any) => new Date(b.date).getTime() - new Date(a.date).getTime());
   }, [settings.sourceId, transactions]);
 
-  // Calc Remaining Cash
-  const totalDeductions = (parseFloat(splits.card)||0) + (parseFloat(splits.svc)||0) + (parseFloat(splits.drinks)||0);
-  const remainingCash = selectedTx ? (selectedTx.amount - totalDeductions) : 0;
-  const isBalanced = remainingCash >= 0;
+  // Balance Check
+  const totalAllocated = (parseFloat(splits.cash)||0) + (parseFloat(splits.card)||0) + (parseFloat(splits.svc)||0) + (parseFloat(splits.drinks)||0);
+  const remaining = selectedTx ? (selectedTx.amount - totalAllocated) : 0;
+  const isBalanced = Math.abs(remaining) < 0.01;
 
   const handleSettle = async () => {
-    if (!selectedTx || !isBalanced || !settings.primaryDestId) return;
+    if (!selectedTx || !isBalanced) return;
     const now = new Date().toISOString();
+    const shiftId = selectedTx.shiftId; 
 
-    // 1. Credit Pending Source (Full Amount)
-    await onSettle({
-      description: `Bar Settle: ${selectedTx.description}`,
-      amount: -selectedTx.amount,
-      category: 'Transfer',
-      date: now,
-      accountId: settings.sourceId
-    });
-
-    // 2. Debit Primary Destination (Full Amount) - "Full amount is coming to that account"
-    await onSettle({
-      description: `Bar Sales (Gross): ${selectedTx.description}`,
-      amount: selectedTx.amount,
-      category: 'Revenue',
-      date: now,
-      accountId: settings.primaryDestId
-    });
-
-    // 3. Distribute (Deduct from Primary)
-    
-    // Distribute Card Portion
-    if (parseFloat(splits.card) > 0) {
+    // 1. CASH TRANSFER (Move to Till/Bank)
+    const cashVal = parseFloat(splits.cash);
+    if (cashVal > 0 && settings.cashDestId) {
       await onSettle({
-        description: `Bar Card Transfer`,
-        amount: -parseFloat(splits.card), // Remove from Primary
+        description: `Transfer to Cash: ${selectedTx.description}`,
+        amount: -cashVal, 
         category: 'Transfer',
         date: now,
-        accountId: settings.primaryDestId
+        accountId: settings.sourceId,
+        shiftId 
       });
       await onSettle({
-        description: `Bar Card Receipt`,
-        amount: parseFloat(splits.card), // Add to Card Account
-        category: 'Transfer',
+        description: `Bar Sales (Cash Portion)`,
+        amount: cashVal,
+        category: 'Revenue',
         date: now,
-        accountId: settings.cardDestId
+        accountId: settings.cashDestId,
+        shiftId
       });
     }
 
-    // Distribute Service Charge
-    if (parseFloat(splits.svc) > 0) {
-      await onSettle({
-        description: `Bar Svc Charge Ded.`,
-        amount: -parseFloat(splits.svc), // Remove from Primary
-        category: 'Expense',
+    // 2. CARD TRANSFER (Move to Receivable/Bank)
+    const cardVal = parseFloat(splits.card);
+    if (cardVal > 0 && settings.cardDestId) {
+       await onSettle({
+        description: `Transfer to Card Rec: ${selectedTx.description}`,
+        amount: -cardVal,
+        category: 'Transfer',
         date: now,
-        accountId: settings.primaryDestId
+        accountId: settings.sourceId,
+        shiftId 
       });
       await onSettle({
-        description: `Bar Svc Charge Cost`,
-        amount: parseFloat(splits.svc), // Add to Expense
-        category: 'Expense',
+        description: `Bar Sales (Card Portion)`,
+        amount: cardVal,
+        category: 'Revenue',
         date: now,
-        accountId: settings.svcId
+        accountId: settings.cardDestId,
+        shiftId
       });
     }
 
-    // Distribute Drinks
-    if (parseFloat(splits.drinks) > 0) {
+    // 3. SERVICE CHARGE (Direct Deduction from Source)
+    // This removes the money from the ecosystem (Expense)
+    const svcVal = parseFloat(splits.svc);
+    if (svcVal > 0) {
       await onSettle({
-        description: `Bar Drinks Ded.`,
-        amount: -parseFloat(splits.drinks), // Remove from Primary
-        category: 'Cost of Goods',
+        description: `Service Charge Deduction`,
+        amount: -svcVal,
+        category: 'Expense',
         date: now,
-        accountId: settings.primaryDestId
+        accountId: settings.sourceId,
+        shiftId 
       });
+    }
+
+    // 4. DRINKS COST (Direct Deduction from Source)
+    const drinksVal = parseFloat(splits.drinks);
+    if (drinksVal > 0) {
       await onSettle({
-        description: `Bar Drinks Cost`,
-        amount: parseFloat(splits.drinks), // Add to Expense
+        description: `Drinks Cost Deduction`,
+        amount: -drinksVal,
         category: 'Cost of Goods',
         date: now,
-        accountId: settings.drinksId
+        accountId: settings.sourceId,
+        shiftId 
       });
     }
 
     setSelectedTx(null);
-    setSplits({ card: '', svc: '', drinks: '' });
+    setSplits({ cash: '', card: '', svc: '', drinks: '' });
   };
 
   return (
     <div className="space-y-6">
-       {/* Config Bar */}
        <div className="bg-white p-5 rounded-[2rem] border border-slate-200 shadow-sm">
          <div className="flex items-center gap-2 mb-3 text-slate-400">
            <SettingsIcon size={14} />
            <p className="text-xs font-black uppercase tracking-widest">Bar Portal Configuration</p>
          </div>
-         <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-            {[
-              { label: 'Pending Source', val: settings.sourceId, key: 'sourceId', opts: potentialSources },
-              { label: 'Primary Dest (Cash)', val: settings.primaryDestId, key: 'primaryDestId', opts: potentialDests },
-              { label: 'Card Dest', val: settings.cardDestId, key: 'cardDestId', opts: potentialDests },
-              { label: 'Svc Charge Exp', val: settings.svcId, key: 'svcId', opts: potentialExpenses },
-              { label: 'Drinks Cost Exp', val: settings.drinksId, key: 'drinksId', opts: potentialExpenses },
-            ].map((field) => (
-              <div key={field.key} className="space-y-1">
-                <label className="text-[10px] font-bold text-slate-400 uppercase ml-1 truncate">{field.label}</label>
+         <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            <div className="space-y-1">
+                <label className="text-[10px] font-bold text-slate-400 uppercase ml-1">Pending Source</label>
                 <select 
                   className="w-full p-2 bg-slate-50 rounded-xl font-bold text-xs outline-none focus:ring-2 focus:ring-amber-200"
-                  value={field.val}
-                  onChange={e => saveSettings({ ...settings, [field.key]: e.target.value })}
+                  value={settings.sourceId}
+                  onChange={e => saveSettings({ ...settings, sourceId: e.target.value })}
                 >
-                  <option value="">Select...</option>
-                  {field.opts.map((a:any)=><option key={a.id} value={a.id}>{a.name}</option>)}
+                  <option value="">Select Source...</option>
+                  {potentialSources.map((a:any)=><option key={a.id} value={a.id}>{a.name}</option>)}
                 </select>
-              </div>
-            ))}
+            </div>
+            <div className="space-y-1">
+                <label className="text-[10px] font-bold text-slate-400 uppercase ml-1">Cash Dest (Till)</label>
+                <select 
+                  className="w-full p-2 bg-slate-50 rounded-xl font-bold text-xs outline-none focus:ring-2 focus:ring-amber-200"
+                  value={settings.cashDestId}
+                  onChange={e => saveSettings({ ...settings, cashDestId: e.target.value })}
+                >
+                  <option value="">Select Cash Asset...</option>
+                  {potentialCashDests.map((a:any)=><option key={a.id} value={a.id}>{a.name}</option>)}
+                </select>
+            </div>
+            <div className="space-y-1">
+                <label className="text-[10px] font-bold text-slate-400 uppercase ml-1">Card Dest (Rec)</label>
+                <select 
+                  className="w-full p-2 bg-slate-50 rounded-xl font-bold text-xs outline-none focus:ring-2 focus:ring-amber-200"
+                  value={settings.cardDestId}
+                  onChange={e => saveSettings({ ...settings, cardDestId: e.target.value })}
+                >
+                  <option value="">Select Card Rec...</option>
+                  {potentialCardDests.map((a:any)=><option key={a.id} value={a.id}>{a.name}</option>)}
+                </select>
+            </div>
          </div>
        </div>
 
        <div className="flex flex-col lg:flex-row gap-6">
-          {/* List */}
-          <div className="flex-1 bg-white rounded-[2rem] border border-slate-200 p-2 max-h-[400px] overflow-y-auto">
+          <div className="flex-1 bg-white rounded-[2rem] border border-slate-200 p-2 max-h-[450px] overflow-y-auto">
              {availableTx.length === 0 && <div className="p-8 text-center text-slate-400 text-xs">No pending shift transactions found</div>}
              {availableTx.map((tx: any) => (
                 <div 
@@ -743,7 +742,6 @@ const BarSalesPortal = ({ accounts, transactions, onSettle, onClose }: any) => {
              ))}
           </div>
 
-          {/* Action Panel */}
           <div className="w-full lg:w-96 bg-white p-6 rounded-[2rem] border border-slate-200 shadow-xl h-fit">
              {!selectedTx ? (
                <div className="h-64 flex flex-col items-center justify-center text-slate-300">
@@ -753,37 +751,52 @@ const BarSalesPortal = ({ accounts, transactions, onSettle, onClose }: any) => {
              ) : (
                <div className="space-y-4 animate-in fade-in slide-in-from-right-4">
                   <div className="text-center pb-4 border-b border-slate-100">
-                    <p className="text-xs font-bold text-slate-400 uppercase">Gross Sales</p>
+                    <p className="text-xs font-bold text-slate-400 uppercase">Gross Sales to Distribute</p>
                     <p className="text-3xl font-black text-slate-900">${selectedTx.amount.toLocaleString()}</p>
                   </div>
-
                   <div className="grid grid-cols-2 gap-3">
                     <div className="space-y-1">
-                      <label className="text-[10px] font-bold text-slate-400 uppercase ml-1">Card Portion</label>
-                      <input type="number" className="w-full p-3 bg-purple-50 rounded-xl font-bold outline-none" placeholder="0" value={splits.card} onChange={e=>setSplits({...splits, card: e.target.value})} />
+                      <label className="text-[10px] font-bold text-slate-400 uppercase ml-1">Cash (To Till)</label>
+                      <input type="number" className="w-full p-3 bg-slate-50 rounded-xl font-bold outline-none focus:ring-2 focus:ring-blue-100" placeholder="0" value={splits.cash} onChange={e=>setSplits({...splits, cash: e.target.value})} />
                     </div>
                     <div className="space-y-1">
-                      <label className="text-[10px] font-bold text-slate-400 uppercase ml-1">Service Charge</label>
-                      <input type="number" className="w-full p-3 bg-red-50 rounded-xl font-bold text-red-500 outline-none" placeholder="0" value={splits.svc} onChange={e=>setSplits({...splits, svc: e.target.value})} />
+                      <label className="text-[10px] font-bold text-slate-400 uppercase ml-1">Card (To Rec)</label>
+                      <input type="number" className="w-full p-3 bg-purple-50 rounded-xl font-bold outline-none focus:ring-2 focus:ring-purple-100" placeholder="0" value={splits.card} onChange={e=>setSplits({...splits, card: e.target.value})} />
                     </div>
-                    <div className="space-y-1 col-span-2">
-                      <label className="text-[10px] font-bold text-slate-400 uppercase ml-1">Drinks Cost (Deducted)</label>
-                      <input type="number" className="w-full p-3 bg-red-50 rounded-xl font-bold text-red-500 outline-none" placeholder="0" value={splits.drinks} onChange={e=>setSplits({...splits, drinks: e.target.value})} />
+                    <div className="space-y-1">
+                      <div className="flex justify-between items-center px-1">
+                        <label className="text-[10px] font-bold text-slate-400 uppercase">Svc Charge (Ded)</label>
+                        {/* PERCENTAGE CALCULATOR */}
+                        {splits.svc && selectedTx && (
+                          <span className="text-[10px] font-black text-blue-600 bg-blue-50 px-1.5 rounded">
+                            {((parseFloat(splits.svc) / selectedTx.amount) * 100).toFixed(1)}%
+                          </span>
+                        )}
+                      </div>
+                      <input 
+                        type="number" 
+                        className="w-full p-3 bg-red-50 rounded-xl font-bold text-red-500 outline-none focus:ring-2 focus:ring-red-100" 
+                        placeholder="0" 
+                        value={splits.svc} 
+                        onChange={e=>setSplits({...splits, svc: e.target.value})} 
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-bold text-slate-400 uppercase ml-1">Drinks Cost (Ded)</label>
+                      <input type="number" className="w-full p-3 bg-red-50 rounded-xl font-bold text-red-500 outline-none focus:ring-2 focus:ring-red-100" placeholder="0" value={splits.drinks} onChange={e=>setSplits({...splits, drinks: e.target.value})} />
                     </div>
                   </div>
-
                   <div className={`p-4 rounded-xl flex justify-between items-center ${isBalanced ? 'bg-emerald-50 text-emerald-600' : 'bg-red-50 text-red-600'}`}>
-                    <span className="text-xs font-black uppercase">Net Cash to Keep</span>
-                    <span className="font-black text-2xl">${remainingCash.toFixed(2)}</span>
+                    <span className="text-xs font-black uppercase">Remaining</span>
+                    <span className="font-black text-2xl">${remaining.toFixed(2)}</span>
                   </div>
-
                   <button 
-                    disabled={!isBalanced || !settings.primaryDestId}
+                    disabled={!isBalanced || !settings.cashDestId || !settings.cardDestId}
                     onClick={handleSettle}
                     className="w-full py-4 bg-slate-900 text-white rounded-2xl font-black shadow-lg disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                   >
                     <ArrowRightLeft size={18} />
-                    DISTRIBUTE FUNDS
+                    DISTRIBUTE & CLEAR
                   </button>
                </div>
              )}
@@ -793,7 +806,7 @@ const BarSalesPortal = ({ accounts, transactions, onSettle, onClose }: any) => {
   );
 };
 
-// --- BILLS REC PORTAL (Unchanged Logic - Just stricter filter) ---
+// --- BILLS REC PORTAL (Hides Balanced Accounts) ---
 const BillsRecPortal = ({ accounts, transactions, onSettle, onClose }: any) => {
   const [settings, setSettings] = useState({
     sourceId: '',
@@ -825,17 +838,29 @@ const BillsRecPortal = ({ accounts, transactions, onSettle, onClose }: any) => {
     transactions
       .filter((t: Transaction) => 
         t.accountId === settings.sourceId && 
-        t.amount > 0 &&
-        t.shiftId // STRICTLY FILTER for Daily Ops Shifts
+        t.shiftId
       )
       .forEach((t: Transaction) => {
-        // DailyOps "Guest Receivable: NAME"
-        const name = t.description.includes(':') ? t.description.split(':')[1].trim() : 'Unknown';
+        let name = 'Unknown';
+        if (t.description.includes(':')) {
+             name = t.description.split(':')[1].trim();
+        } else {
+             return;
+        }
+
         if (!groups[name]) groups[name] = { total: 0, txs: [] };
         groups[name].total += t.amount;
         groups[name].txs.push(t);
       });
-    return groups;
+
+    const activeGroups: any = {};
+    Object.entries(groups).forEach(([name, data]) => {
+        if (data.total > 0.01) {
+            activeGroups[name] = data;
+        }
+    });
+    
+    return activeGroups;
   }, [settings.sourceId, transactions]);
 
   const activeGroup = selectedCustomer ? customerGroups[selectedCustomer] : null;
@@ -846,23 +871,23 @@ const BillsRecPortal = ({ accounts, transactions, onSettle, onClose }: any) => {
     if (!activeGroup || Math.abs(remaining) > 0.01) return;
     const now = new Date().toISOString();
 
-    // 1. Credit Source (Clear Bill)
     await onSettle({
       description: `Bill Payment: ${selectedCustomer}`,
       amount: -activeGroup.total,
       category: 'Transfer',
       date: now,
-      accountId: settings.sourceId
+      accountId: settings.sourceId,
+      shiftId: activeGroup.txs[0].shiftId
     });
 
-    // 2. Debit Destinations
     if (parseFloat(payAmount1) > 0) {
       await onSettle({
         description: `Bill Receipt (Cash/Bank) - ${selectedCustomer}`,
         amount: parseFloat(payAmount1),
         category: 'Revenue',
         date: now,
-        accountId: settings.dest1Id
+        accountId: settings.dest1Id,
+        shiftId: activeGroup.txs[0].shiftId
       });
     }
     if (parseFloat(payAmount2) > 0) {
@@ -871,7 +896,8 @@ const BillsRecPortal = ({ accounts, transactions, onSettle, onClose }: any) => {
         amount: parseFloat(payAmount2),
         category: 'Revenue',
         date: now,
-        accountId: settings.dest2Id
+        accountId: settings.dest2Id,
+        shiftId: activeGroup.txs[0].shiftId
       });
     }
     
@@ -881,7 +907,6 @@ const BillsRecPortal = ({ accounts, transactions, onSettle, onClose }: any) => {
 
   return (
     <div className="space-y-6">
-      {/* Config */}
       <div className="bg-white p-5 rounded-[2rem] border border-slate-200 shadow-sm">
          <div className="flex items-center gap-2 mb-3 text-slate-400">
            <SettingsIcon size={14} />
@@ -913,11 +938,11 @@ const BillsRecPortal = ({ accounts, transactions, onSettle, onClose }: any) => {
       </div>
 
       <div className="flex flex-col lg:flex-row gap-6">
-        {/* Customer List */}
         <div className="w-full lg:w-80 bg-white rounded-[2rem] border border-slate-200 p-4 max-h-[500px] overflow-y-auto">
           <h3 className="font-bold text-slate-700 mb-4 ml-2">Pending Guests</h3>
           {Object.keys(customerGroups).length === 0 && <p className="text-xs text-slate-400 text-center py-8">No pending bills found in source</p>}
-          {Object.entries(customerGroups).map(([name, data]) => (
+          {/* Explicitly cast mapped entry to any to avoid TS error on 'data' */}
+          {Object.entries(customerGroups).map(([name, data]: any) => (
             <div 
               key={name}
               onClick={() => { setSelectedCustomer(name); setPayAmount1(data.total.toString()); setPayAmount2('0'); }}
@@ -931,7 +956,6 @@ const BillsRecPortal = ({ accounts, transactions, onSettle, onClose }: any) => {
           ))}
         </div>
 
-        {/* Payment Panel */}
         <div className="flex-1 bg-white p-8 rounded-[2rem] border border-slate-200 shadow-lg flex flex-col justify-center">
           {!selectedCustomer ? (
             <div className="text-center text-slate-300">
@@ -985,6 +1009,5 @@ const BillsRecPortal = ({ accounts, transactions, onSettle, onClose }: any) => {
     </div>
   );
 };
-
 
 export default MoneyLab;
