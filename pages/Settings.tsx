@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { useApp } from '../context/AppContext';
 import { 
@@ -18,16 +17,33 @@ import {
   CheckCircle2,
   PlusCircle,
   Trash2,
-  RefreshCcw
+  RefreshCcw,
+  Phone,  // Added
+  Plus    // Added
 } from 'lucide-react';
 import { ShiftFlowConfig } from '../types';
 
 const Settings: React.FC = () => {
-  const { flowConfig, setFlowConfig, accounts, setCurrentPage, mode, resetSandbox } = useApp();
+  const { 
+    flowConfig, 
+    setFlowConfig, 
+    accounts, 
+    setCurrentPage, 
+    mode, 
+    resetSandbox,
+    customers,      // Added
+    addCustomer,    // Added
+    deleteCustomer  // Added
+  } = useApp();
+
   const [localFlowConfig, setLocalFlowConfig] = useState<ShiftFlowConfig>(flowConfig);
   const [isSaving, setIsSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [showResetConfirm, setShowResetConfirm] = useState(false);
+
+  // --- New State for Customer Registry ---
+  const [newCustName, setNewCustName] = useState('');
+  const [newCustPhone, setNewCustPhone] = useState('');
 
   useEffect(() => {
     setLocalFlowConfig(flowConfig);
@@ -54,6 +70,14 @@ const Settings: React.FC = () => {
   const handleReset = () => {
     resetSandbox();
     setShowResetConfirm(false);
+  };
+
+  // --- New Handler for Adding Customers ---
+  const handleAddCustomer = async () => {
+    if (!newCustName) return;
+    await addCustomer({ name: newCustName, phone: newCustPhone });
+    setNewCustName('');
+    setNewCustPhone('');
   };
 
   const hasChanges = JSON.stringify(localFlowConfig) !== JSON.stringify(flowConfig);
@@ -176,6 +200,65 @@ const Settings: React.FC = () => {
           </div>
         </div>
       </div>
+
+      {/* --- NEW SECTION: CUSTOMER REGISTRY --- */}
+      <div className="bg-white rounded-[2.5rem] p-8 shadow-sm border border-slate-100">
+        <div className="flex items-center gap-4 mb-6">
+          <div className="w-12 h-12 bg-emerald-50 rounded-2xl flex items-center justify-center text-emerald-600">
+            <Users size={24} />
+          </div>
+          <div>
+            <h2 className="text-xl font-black text-slate-900">Customer Registry</h2>
+            <p className="text-sm text-slate-400 font-medium">Manage guests allowed for credit billing</p>
+          </div>
+        </div>
+
+        {/* Add New Customer Form */}
+        <div className="flex flex-col md:flex-row gap-3 mb-8 p-4 bg-slate-50 rounded-3xl">
+           <input 
+             placeholder="Customer Name (e.g. John Doe / Room 101)"
+             value={newCustName}
+             onChange={e => setNewCustName(e.target.value)}
+             className="flex-1 h-12 px-4 bg-white rounded-xl font-bold text-sm outline-none focus:ring-2 focus:ring-emerald-100 border-none"
+           />
+           <input 
+             placeholder="Phone (Optional)"
+             value={newCustPhone}
+             onChange={e => setNewCustPhone(e.target.value)}
+             className="md:w-1/3 h-12 px-4 bg-white rounded-xl font-bold text-sm outline-none focus:ring-2 focus:ring-emerald-100 border-none"
+           />
+           <button 
+             onClick={handleAddCustomer}
+             disabled={!newCustName}
+             className="px-6 h-12 bg-emerald-600 text-white rounded-xl font-black disabled:opacity-50 flex items-center gap-2 justify-center shadow-lg shadow-emerald-100 active:scale-95 transition-all"
+           >
+             <Plus size={18} />
+             ADD GUEST
+           </button>
+        </div>
+
+        {/* Customer List */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {customers.length === 0 && (
+             <p className="col-span-full text-center text-slate-400 text-sm font-medium py-4">No customers in registry.</p>
+          )}
+          {customers.map(c => (
+            <div key={c.id} className="p-4 rounded-2xl border border-slate-100 flex items-center justify-between group hover:border-emerald-200 hover:bg-emerald-50/30 transition-all bg-white">
+               <div>
+                 <p className="font-bold text-slate-900">{c.name}</p>
+                 {c.phone && <div className="flex items-center gap-1 text-xs text-slate-400 font-medium mt-1"><Phone size={10} /> {c.phone}</div>}
+               </div>
+               <button 
+                 onClick={() => deleteCustomer(c.id)} 
+                 className="p-2 text-slate-300 hover:text-red-500 transition-colors bg-slate-50 hover:bg-red-50 rounded-xl"
+               >
+                 <Trash2 size={16} />
+               </button>
+            </div>
+          ))}
+        </div>
+      </div>
+      {/* -------------------------------------- */}
 
       {/* Danger Zone / Reset Sandbox */}
       {mode === 'sandbox' && (

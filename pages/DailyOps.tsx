@@ -464,32 +464,72 @@ const BillsModal = ({ current, targetAccount, customers, onClose, onSave }: any)
   const [bills, setBills] = useState<CreditBillEntry[]>(current);
   const [selectedCust, setSelectedCust] = useState(customers[0]?.id || '');
   const [amount, setAmount] = useState('');
+  
+  // --- New State for Quick Add ---
+  const [isAddingNew, setIsAddingNew] = useState(false);
+  const [newCustName, setNewCustName] = useState('');
+  const { addCustomer } = useApp(); 
 
-  const handleAdd = () => {
+  const handleAddBill = () => {
     const cust = customers.find((c: any) => c.id === selectedCust);
     if (!cust || !amount) return;
     setBills([...bills, { customerId: cust.id, customerName: cust.name, amount: parseFloat(amount) }]);
     setAmount('');
   };
 
+  const handleQuickCreate = async () => {
+    if(!newCustName) return;
+    await addCustomer({ name: newCustName });
+    setIsAddingNew(false);
+    setNewCustName('');
+    // The new customer will appear in the dropdown automatically via context update
+  };
+
   return (
     <MenuModal title="Credit Bills" targetAccount={targetAccount} onClose={onClose}>
       <div className="space-y-6">
         <div className="bg-slate-50 p-4 rounded-3xl space-y-3">
-          <select 
-            className="w-full h-12 px-4 bg-white border-none rounded-xl font-bold outline-none"
-            value={selectedCust}
-            onChange={(e) => setSelectedCust(e.target.value)}
-          >
-            {customers.map((c: any) => <option key={c.id} value={c.id}>{c.name}</option>)}
-          </select>
+          
+          {/* Toggle between Dropdown and Quick Add Input */}
+          {!isAddingNew ? (
+            <div className="flex gap-2">
+              <select 
+                className="flex-1 h-12 px-4 bg-white border-none rounded-xl font-bold outline-none text-slate-700"
+                value={selectedCust}
+                onChange={(e) => setSelectedCust(e.target.value)}
+              >
+                {customers.length === 0 && <option value="">No customers found</option>}
+                {customers.map((c: any) => <option key={c.id} value={c.id}>{c.name}</option>)}
+              </select>
+              <button 
+                onClick={() => setIsAddingNew(true)}
+                className="w-12 h-12 flex items-center justify-center bg-blue-100 text-blue-600 rounded-xl hover:bg-blue-200 transition-colors"
+                title="Add New Customer"
+              >
+                <Plus size={20} />
+              </button>
+            </div>
+          ) : (
+            <div className="flex gap-2 animate-in slide-in-from-right-2">
+              <input 
+                autoFocus
+                placeholder="New Customer Name"
+                className="flex-1 h-12 px-4 bg-white border-2 border-blue-100 rounded-xl font-bold outline-none focus:border-blue-500 text-sm"
+                value={newCustName}
+                onChange={(e) => setNewCustName(e.target.value)}
+              />
+              <button onClick={handleQuickCreate} className="px-4 h-12 bg-blue-600 text-white rounded-xl font-black text-xs">SAVE</button>
+              <button onClick={() => setIsAddingNew(false)} className="px-3 h-12 bg-slate-200 text-slate-500 rounded-xl"><X size={16} /></button>
+            </div>
+          )}
+
           <div className="flex gap-2">
             <input 
               type="number" placeholder="Amt"
               className="flex-1 h-12 px-4 bg-white border-none rounded-xl font-bold outline-none"
               value={amount} onChange={(e) => setAmount(e.target.value)}
             />
-            <button onClick={handleAdd} className="px-6 h-12 bg-emerald-600 text-white rounded-xl font-black">ADD</button>
+            <button onClick={handleAddBill} className="px-6 h-12 bg-emerald-600 text-white rounded-xl font-black">ADD</button>
           </div>
         </div>
         <div className="max-h-48 overflow-y-auto space-y-2">

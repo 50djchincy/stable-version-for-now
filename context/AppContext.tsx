@@ -1,4 +1,3 @@
-
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { AppMode, User, Account, Transaction, Shift, Customer, ShiftFlowConfig, StaffMember, HolidayRecord, Vendor, ExpenseRecord } from '../types';
 import { auth, db, getArtifactCollection } from '../firebase';
@@ -54,6 +53,9 @@ interface AppContextType {
   deleteVendor: (id: string) => Promise<void>;
   addExpense: (data: Omit<ExpenseRecord, 'id' | 'createdAt'>) => Promise<void>;
   deleteExpense: (id: string) => Promise<void>;
+  // Customer Methods
+  addCustomer: (data: Omit<Customer, 'id'>) => Promise<void>;
+  deleteCustomer: (id: string) => Promise<void>;
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
@@ -127,7 +129,6 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       setAccounts(JSON.parse(localStorage.getItem('mozza_sandbox_accounts') || '[]'));
       setTransactions(JSON.parse(localStorage.getItem('mozza_sandbox_transactions') || '[]'));
       setShifts(JSON.parse(localStorage.getItem('mozza_sandbox_shifts') || '[]'));
-      // Fixed syntax error: added missing closing quote for 'mozza_sandbox_staff'
       setStaff(JSON.parse(localStorage.getItem('mozza_sandbox_staff') || '[]'));
       setHolidays(JSON.parse(localStorage.getItem('mozza_sandbox_holidays') || '[]'));
       setCustomers(JSON.parse(localStorage.getItem('mozza_sandbox_customers') || '[{"id":"1","name":"Regular Guest"},{"id":"2","name":"VIP Table 5"}]'));
@@ -345,6 +346,32 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     }
   };
 
+  // --- CUSTOMER MANAGEMENT ---
+  const addCustomer = async (data: Omit<Customer, 'id'>) => {
+    const newItem = { ...data };
+    if (mode === 'live') {
+      await addDoc(getArtifactCollection('customers'), newItem);
+    } else {
+      setCustomers(prev => {
+        const updated = [...prev, { ...newItem, id: Math.random().toString(36).substr(2, 9) }];
+        localStorage.setItem('mozza_sandbox_customers', JSON.stringify(updated));
+        return updated;
+      });
+    }
+  };
+
+  const deleteCustomer = async (id: string) => {
+    if (mode === 'live') {
+      await deleteDoc(doc(getArtifactCollection('customers'), id));
+    } else {
+      setCustomers(prev => {
+        const updated = prev.filter(c => c.id !== id);
+        localStorage.setItem('mozza_sandbox_customers', JSON.stringify(updated));
+        return updated;
+      });
+    }
+  };
+
   const startShift = async (openingFloat: number, initialInjections: any[], accountingDate: string) => {
     const newShift: Shift = {
       id: Math.random().toString(36).substr(2, 9),
@@ -472,7 +499,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     localStorage.removeItem('mozza_sandbox_vendors');
     localStorage.removeItem('mozza_sandbox_expenses');
     localStorage.removeItem('mozza_sandbox_flow');
-    setAccounts([]); setTransactions([]); setShifts([]); setStaff([]); setHolidays([]); setVendors([]); setExpenses([]); setFlowConfigState(DEFAULT_FLOW);
+    localStorage.removeItem('mozza_sandbox_customers'); // Reset customers too
+    setAccounts([]); setTransactions([]); setShifts([]); setStaff([]); setHolidays([]); setVendors([]); setExpenses([]); setCustomers([]); setFlowConfigState(DEFAULT_FLOW);
     setCurrentPage('dashboard');
   };
 
@@ -483,7 +511,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       setSelectedAccountId, setFlowConfig, addAccount, addTransaction, startShift, updateActiveShift, closeShift,
       resetSandbox,
       addStaff, updateStaff, deleteStaff, toggleHoliday,
-      addVendor, updateVendor, deleteVendor, addExpense, deleteExpense
+      addVendor, updateVendor, deleteVendor, addExpense, deleteExpense,
+      addCustomer, deleteCustomer
     }}>
       {children}
     </AppContext.Provider>
