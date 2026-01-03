@@ -1,11 +1,11 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
-import { VitePWA } from 'vite-plugin-pwa'; // Import the plugin
+import { VitePWA } from 'vite-plugin-pwa';
 
 export default defineConfig({
   plugins: [
     react(),
-    VitePWA({ 
+    VitePWA({
       registerType: 'autoUpdate',
       includeAssets: ['favicon.ico', 'apple-touch-icon.png', 'mask-icon.svg'],
       manifest: {
@@ -13,6 +13,9 @@ export default defineConfig({
         short_name: 'Mozzarella',
         description: 'Mozzarella ERP Application',
         theme_color: '#ffffff',
+        background_color: '#ffffff', // Required for splash screen
+        display: 'standalone',       // REQUIRED for install button
+        start_url: '/',              // REQUIRED for install button
         icons: [
           {
             src: 'pwa-192x192.png',
