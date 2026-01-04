@@ -18,6 +18,9 @@ import {
   PlusCircle,
   Trash2,
   RefreshCcw,
+  ShieldCheck,
+  Crown,
+  UserCog,
   Phone,  // Added
   Plus    // Added
 } from 'lucide-react';
@@ -259,6 +262,73 @@ const Settings: React.FC = () => {
         </div>
       </div>
       {/* -------------------------------------- */}
+
+      {/* --- NEW SECTION: USER PRIVILEGES --- */}
+      <div className="bg-white rounded-[2.5rem] p-8 shadow-sm border border-slate-100">
+        <div className="flex items-center gap-4 mb-6">
+          <div className="w-12 h-12 bg-indigo-50 rounded-2xl flex items-center justify-center text-indigo-600">
+            <ShieldCheck size={24} />
+          </div>
+          <div>
+            <h2 className="text-xl font-black text-slate-900">User Privileges</h2>
+            <p className="text-sm text-slate-400 font-medium">Define access for managers, admins, and staff</p>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="p-5 rounded-3xl border border-slate-100 bg-slate-50/60">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-10 h-10 rounded-2xl bg-white flex items-center justify-center text-amber-500">
+                <Crown size={20} />
+              </div>
+              <div>
+                <h3 className="text-sm font-black text-slate-900">Admin</h3>
+                <p className="text-xs text-slate-400 font-medium">Full system access</p>
+              </div>
+            </div>
+            <ul className="space-y-2 text-xs text-slate-600 font-semibold">
+              <li>• Manage accounts, shifts, and ledgers</li>
+              <li>• Configure shift flow + billing rules</li>
+              <li>• Access reporting and exports</li>
+            </ul>
+          </div>
+
+          <div className="p-5 rounded-3xl border border-slate-100 bg-slate-50/60">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-10 h-10 rounded-2xl bg-white flex items-center justify-center text-emerald-500">
+                <UserCog size={20} />
+              </div>
+              <div>
+                <h3 className="text-sm font-black text-slate-900">Manager</h3>
+                <p className="text-xs text-slate-400 font-medium">Operational control</p>
+              </div>
+            </div>
+            <ul className="space-y-2 text-xs text-slate-600 font-semibold">
+              <li>• Open/close shifts and approve variances</li>
+              <li>• Manage staff schedules and holidays</li>
+              <li>• Review daily sales + expenses</li>
+            </ul>
+          </div>
+
+          <div className="p-5 rounded-3xl border border-slate-100 bg-slate-50/60">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-10 h-10 rounded-2xl bg-white flex items-center justify-center text-blue-500">
+                <Users size={20} />
+              </div>
+              <div>
+                <h3 className="text-sm font-black text-slate-900">Staff</h3>
+                <p className="text-xs text-slate-400 font-medium">Daily execution</p>
+              </div>
+            </div>
+            <ul className="space-y-2 text-xs text-slate-600 font-semibold">
+              <li>• Record sales and guest bills</li>
+              <li>• Track cash drops + tips</li>
+              <li>• View assigned shift details</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+      {/* ----------------------------------- */}
 
       {/* Danger Zone / Reset Sandbox */}
       {mode === 'sandbox' && (
