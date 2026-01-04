@@ -2,7 +2,7 @@ import React, { createContext, useContext, useState, useEffect, ReactNode } from
 import { AppMode, User, Account, Transaction, Shift, Customer, ShiftFlowConfig, StaffMember, HolidayRecord, Vendor, ExpenseRecord } from '../types';
 import { auth, db, getArtifactCollection } from '../firebase';
 import { onAuthStateChanged, signInAnonymously, signOut } from 'firebase/auth';
-import { addDoc, onSnapshot, query, orderBy, updateDoc, doc, setDoc, increment, deleteDoc, collection } from 'firebase/firestore';
+import { addDoc, onSnapshot, query, orderBy, updateDoc, doc, setDoc, increment, deleteDoc, collection, writeBatch } from 'firebase/firestore';
 
 const DEFAULT_FLOW: ShiftFlowConfig = {
   salesAccount: '',
@@ -439,49 +439,132 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     const shiftDate = closedShift.endTime || new Date().toISOString();
     const shiftDiff = closedShift.difference || 0;
 
-    await addTransaction({ description: `Daily Sales (${closedShift.accountingDate})`, amount: closedShift.totalSales, category: 'Revenue', date: shiftDate, accountId: flowConfig.salesAccount, shiftId: closedShift.id });
-    
-    if (closedShift.cards > 0) {
-      await addTransaction({ description: `Sales Card Sweep`, amount: -closedShift.cards, category: 'Transfer', date: shiftDate, accountId: flowConfig.salesAccount, shiftId: closedShift.id });
-      await addTransaction({ description: `Card Settlement Receipt`, amount: closedShift.cards, category: 'Transfer', date: shiftDate, accountId: flowConfig.cardsAccount, shiftId: closedShift.id });
-    }
-    
-    if (closedShift.hikingBar > 0) {
-      await addTransaction({ description: `Hiking Portion Sweep`, amount: -closedShift.hikingBar, category: 'Transfer', date: shiftDate, accountId: flowConfig.salesAccount, shiftId: closedShift.id });
-      await addTransaction({ description: `Hiking Bar Receivable`, amount: closedShift.hikingBar, category: 'Transfer', date: shiftDate, accountId: flowConfig.hikingAccount, shiftId: closedShift.id });
-    }
-    
-    if (closedShift.foreignCurrency.value > 0) {
-      await addTransaction({ description: `FX Reserve Sweep`, amount: -closedShift.foreignCurrency.value, category: 'Transfer', date: shiftDate, accountId: flowConfig.salesAccount, shiftId: closedShift.id });
-      await addTransaction({ description: `FX Reserve (${closedShift.foreignCurrency.comment})`, amount: closedShift.foreignCurrency.value, category: 'Transfer', date: shiftDate, accountId: flowConfig.fxAccount, shiftId: closedShift.id });
-    }
-    
-    for (const bill of closedShift.creditBills) {
-      await addTransaction({ description: `Credit Bill Sweep: ${bill.customerName}`, amount: -bill.amount, category: 'Transfer', date: shiftDate, accountId: flowConfig.salesAccount, shiftId: closedShift.id });
-      await addTransaction({ description: `Guest Receivable: ${bill.customerName}`, amount: bill.amount, category: 'Transfer', date: shiftDate, accountId: flowConfig.billsAccount, shiftId: closedShift.id });
-    }
-    
-    for (const exp of closedShift.expenses) {
-      await addTransaction({ description: `Shift Expense: ${exp.description}`, amount: -exp.amount, category: exp.category, date: shiftDate, accountId: flowConfig.cashAccount, shiftId: closedShift.id });
-    }
-    
-    const totalNonCash = closedShift.cards + closedShift.hikingBar + closedShift.foreignCurrency.value + closedShift.creditBills.reduce((a,b)=>a+b.amount,0);
-    const cashSales = closedShift.totalSales - totalNonCash;
-    
-    if (cashSales > 0) {
-      await addTransaction({ description: `Cash Portion Sweep`, amount: -cashSales, category: 'Transfer', date: shiftDate, accountId: flowConfig.salesAccount, shiftId: closedShift.id });
-      await addTransaction({ description: `Shift Cash Receipt`, amount: cashSales, category: 'Transfer', date: shiftDate, accountId: flowConfig.cashAccount, shiftId: closedShift.id });
-    }
-    
-    if (shiftDiff !== 0) {
-       await addTransaction({ description: `Cash Variance Adjustment`, amount: shiftDiff, category: 'Adjustment', date: shiftDate, accountId: flowConfig.varianceAccount, shiftId: closedShift.id });
-       await addTransaction({ description: `Variance Correction in Till`, amount: shiftDiff, category: 'Adjustment', date: shiftDate, accountId: flowConfig.cashAccount, shiftId: closedShift.id });
-    }
-
     if (mode === 'live') {
-      const shiftRef = doc(getArtifactCollection('shifts'), activeShift.id);
-      await updateDoc(shiftRef, { status: 'closed', endTime: closedShift.endTime, actualCash: closedShift.actualCash, difference: closedShift.difference, closedBy: closedShift.closedBy, totalSales: closedShift.totalSales });
+      try {
+        const batch = writeBatch(db);
+
+        // Queue Shift Status Update
+        const shiftRef = doc(getArtifactCollection('shifts'), activeShift.id);
+        batch.update(shiftRef, { 
+          status: 'closed', 
+          endTime: closedShift.endTime, 
+          actualCash: closedShift.actualCash, 
+          difference: closedShift.difference, 
+          closedBy: closedShift.closedBy, 
+          totalSales: closedShift.totalSales 
+        });
+
+        // Helper to mimic addTransaction inside the batch
+        const queueTransaction = (desc: string, amount: number, cat: string, accId: string) => {
+          const newTransRef = doc(getArtifactCollection('transactions'));
+          const transData: Transaction = {
+            id: newTransRef.id,
+            description: desc,
+            amount: amount,
+            category: cat,
+            date: shiftDate,
+            accountId: accId,
+            shiftId: closedShift.id,
+            createdAt: new Date().toISOString()
+          };
+          
+          batch.set(newTransRef, transData);
+
+          if (accId !== 'internal_ledger' && accId !== 'internal_staff_ledger') {
+            const accountRef = doc(getArtifactCollection('accounts'), accId);
+            batch.update(accountRef, { balance: increment(amount) });
+          }
+        };
+
+        // Execute logic using the batch helper
+        queueTransaction(`Daily Sales (${closedShift.accountingDate})`, closedShift.totalSales, 'Revenue', flowConfig.salesAccount);
+        
+        if (closedShift.cards > 0) {
+          queueTransaction(`Sales Card Sweep`, -closedShift.cards, 'Transfer', flowConfig.salesAccount);
+          queueTransaction(`Card Settlement Receipt`, closedShift.cards, 'Transfer', flowConfig.cardsAccount);
+        }
+        
+        if (closedShift.hikingBar > 0) {
+          queueTransaction(`Hiking Portion Sweep`, -closedShift.hikingBar, 'Transfer', flowConfig.salesAccount);
+          queueTransaction(`Hiking Bar Receivable`, closedShift.hikingBar, 'Transfer', flowConfig.hikingAccount);
+        }
+        
+        if (closedShift.foreignCurrency.value > 0) {
+          queueTransaction(`FX Reserve Sweep`, -closedShift.foreignCurrency.value, 'Transfer', flowConfig.salesAccount);
+          queueTransaction(`FX Reserve (${closedShift.foreignCurrency.comment})`, closedShift.foreignCurrency.value, 'Transfer', flowConfig.fxAccount);
+        }
+        
+        for (const bill of closedShift.creditBills) {
+          queueTransaction(`Credit Bill Sweep: ${bill.customerName}`, -bill.amount, 'Transfer', flowConfig.salesAccount);
+          queueTransaction(`Guest Receivable: ${bill.customerName}`, bill.amount, 'Transfer', flowConfig.billsAccount);
+        }
+        
+        for (const exp of closedShift.expenses) {
+          queueTransaction(`Shift Expense: ${exp.description}`, -exp.amount, exp.category, flowConfig.cashAccount);
+        }
+        
+        const totalNonCash = closedShift.cards + closedShift.hikingBar + closedShift.foreignCurrency.value + closedShift.creditBills.reduce((a,b)=>a+b.amount,0);
+        const cashSales = closedShift.totalSales - totalNonCash;
+        
+        if (cashSales > 0) {
+          queueTransaction(`Cash Portion Sweep`, -cashSales, 'Transfer', flowConfig.salesAccount);
+          queueTransaction(`Shift Cash Receipt`, cashSales, 'Transfer', flowConfig.cashAccount);
+        }
+        
+        if (shiftDiff !== 0) {
+           queueTransaction(`Cash Variance Adjustment`, shiftDiff, 'Adjustment', flowConfig.varianceAccount);
+           queueTransaction(`Variance Correction in Till`, shiftDiff, 'Adjustment', flowConfig.cashAccount);
+        }
+
+        // Commit all changes atomically
+        await batch.commit();
+
+      } catch (error) {
+        console.error("Failed to close shift:", error);
+        alert("Error closing shift. Please check your connection and try again.");
+      }
+
     } else {
+      // Sandbox mode (unchanged)
+      await addTransaction({ description: `Daily Sales (${closedShift.accountingDate})`, amount: closedShift.totalSales, category: 'Revenue', date: shiftDate, accountId: flowConfig.salesAccount, shiftId: closedShift.id });
+      
+      if (closedShift.cards > 0) {
+        await addTransaction({ description: `Sales Card Sweep`, amount: -closedShift.cards, category: 'Transfer', date: shiftDate, accountId: flowConfig.salesAccount, shiftId: closedShift.id });
+        await addTransaction({ description: `Card Settlement Receipt`, amount: closedShift.cards, category: 'Transfer', date: shiftDate, accountId: flowConfig.cardsAccount, shiftId: closedShift.id });
+      }
+      
+      if (closedShift.hikingBar > 0) {
+        await addTransaction({ description: `Hiking Portion Sweep`, amount: -closedShift.hikingBar, category: 'Transfer', date: shiftDate, accountId: flowConfig.salesAccount, shiftId: closedShift.id });
+        await addTransaction({ description: `Hiking Bar Receivable`, amount: closedShift.hikingBar, category: 'Transfer', date: shiftDate, accountId: flowConfig.hikingAccount, shiftId: closedShift.id });
+      }
+      
+      if (closedShift.foreignCurrency.value > 0) {
+        await addTransaction({ description: `FX Reserve Sweep`, amount: -closedShift.foreignCurrency.value, category: 'Transfer', date: shiftDate, accountId: flowConfig.salesAccount, shiftId: closedShift.id });
+        await addTransaction({ description: `FX Reserve (${closedShift.foreignCurrency.comment})`, amount: closedShift.foreignCurrency.value, category: 'Transfer', date: shiftDate, accountId: flowConfig.fxAccount, shiftId: closedShift.id });
+      }
+      
+      for (const bill of closedShift.creditBills) {
+        await addTransaction({ description: `Credit Bill Sweep: ${bill.customerName}`, amount: -bill.amount, category: 'Transfer', date: shiftDate, accountId: flowConfig.salesAccount, shiftId: closedShift.id });
+        await addTransaction({ description: `Guest Receivable: ${bill.customerName}`, amount: bill.amount, category: 'Transfer', date: shiftDate, accountId: flowConfig.billsAccount, shiftId: closedShift.id });
+      }
+      
+      for (const exp of closedShift.expenses) {
+        await addTransaction({ description: `Shift Expense: ${exp.description}`, amount: -exp.amount, category: exp.category, date: shiftDate, accountId: flowConfig.cashAccount, shiftId: closedShift.id });
+      }
+      
+      const totalNonCash = closedShift.cards + closedShift.hikingBar + closedShift.foreignCurrency.value + closedShift.creditBills.reduce((a,b)=>a+b.amount,0);
+      const cashSales = closedShift.totalSales - totalNonCash;
+      
+      if (cashSales > 0) {
+        await addTransaction({ description: `Cash Portion Sweep`, amount: -cashSales, category: 'Transfer', date: shiftDate, accountId: flowConfig.salesAccount, shiftId: closedShift.id });
+        await addTransaction({ description: `Shift Cash Receipt`, amount: cashSales, category: 'Transfer', date: shiftDate, accountId: flowConfig.cashAccount, shiftId: closedShift.id });
+      }
+      
+      if (shiftDiff !== 0) {
+         await addTransaction({ description: `Cash Variance Adjustment`, amount: shiftDiff, category: 'Adjustment', date: shiftDate, accountId: flowConfig.varianceAccount, shiftId: closedShift.id });
+         await addTransaction({ description: `Variance Correction in Till`, amount: shiftDiff, category: 'Adjustment', date: shiftDate, accountId: flowConfig.cashAccount, shiftId: closedShift.id });
+      }
+
       setShifts(prev => {
         const updated = prev.map(s => s.id === closedShift.id ? closedShift : s);
         localStorage.setItem('mozza_sandbox_shifts', JSON.stringify(updated));
