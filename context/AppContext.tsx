@@ -372,6 +372,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     }
   };
 
+  // --- FIXED START SHIFT FUNCTION ---
   const startShift = async (openingFloat: number, initialInjections: any[], accountingDate: string) => {
     const newShift: Shift = {
       id: Math.random().toString(36).substr(2, 9),
@@ -390,7 +391,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     };
 
     if (mode === 'live') {
-      await addDoc(getArtifactCollection('shifts'), newShift);
+      // FIX: Use setDoc with the generated ID instead of addDoc (which creates a mismatch)
+      await setDoc(doc(getArtifactCollection('shifts'), newShift.id), newShift);
     } else {
       setShifts(prev => {
         const updated = [newShift, ...prev];
