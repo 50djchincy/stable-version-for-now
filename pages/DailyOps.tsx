@@ -268,7 +268,9 @@ const ShiftStartModal = ({ onClose, onStart, accounts, flowConfig }: any) => {
         amount: currentInjectedValue 
       });
     }
-    onStart(totalOpeningFloatValue, injections, accountingDate);
+    // FIXED: Passed carryForward (base amount) instead of totalOpeningFloatValue.
+    // AppContext adds the injection amount to this base, so passing the total caused double counting.
+    onStart(carryForward, injections, accountingDate);
   };
 
   return (
@@ -753,6 +755,9 @@ const CloseShiftModal = ({ activeShift, isProcessing, onClose, onConfirm }: any)
   const totalNonCash = activeShift.cards + activeShift.hikingBar + activeShift.foreignCurrency.value + totalBills;
   const netCashSales = activeShift.totalSales - totalNonCash;
   const totalExpenses = activeShift.expenses.reduce((s: number, e: any) => s + e.amount, 0);
+  
+  // Added totalInjections calculation
+  const totalInjections = activeShift.injections.reduce((s: number, i: any) => s + i.amount, 0);
 
   return (
     <div className="fixed inset-0 z-[110] flex items-center justify-center p-4">
@@ -768,6 +773,12 @@ const CloseShiftModal = ({ activeShift, isProcessing, onClose, onConfirm }: any)
                <span>Opening Float</span>
                <span>${activeShift.openingFloat.toLocaleString()}</span>
              </div>
+             {totalInjections > 0 && (
+              <div className="flex justify-between items-center text-xs font-bold text-blue-600">
+                <span className="flex items-center gap-1"><PlusCircle size={10} /> Injections</span>
+                <span>+${totalInjections.toLocaleString()}</span>
+              </div>
+             )}
              <div className="flex justify-between items-center text-xs font-bold text-emerald-600">
                <span className="flex items-center gap-1"><PlusCircle size={10} /> Net Cash Sales</span>
                <span>+${netCashSales.toLocaleString()}</span>
