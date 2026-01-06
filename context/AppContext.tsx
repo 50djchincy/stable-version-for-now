@@ -112,14 +112,38 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     if (!user) return;
 
     if (mode === 'live') {
-      const unsubAcc = onSnapshot(query(getArtifactCollection('accounts'), orderBy('createdAt', 'desc')), (s) => setAccounts(s.docs.map(d => ({ id: d.id, ...d.data() } as Account))));
-      const unsubTrans = onSnapshot(query(getArtifactCollection('transactions'), orderBy('date', 'desc')), (s) => setTransactions(s.docs.map(d => ({ id: d.id, ...d.data() } as Transaction))));
-      const unsubShift = onSnapshot(query(getArtifactCollection('shifts'), orderBy('startTime', 'desc')), (s) => setShifts(s.docs.map(d => ({ id: d.id, ...d.data() } as Shift))));
-      const unsubStaff = onSnapshot(query(getArtifactCollection('staff')), (s) => setStaff(s.docs.map(d => ({ id: d.id, ...d.data() } as StaffMember))));
-      const unsubHolidays = onSnapshot(query(getArtifactCollection('holidays')), (s) => setHolidays(s.docs.map(d => ({ id: d.id, ...d.data() } as HolidayRecord))));
-      const unsubCust = onSnapshot(query(getArtifactCollection('customers'), orderBy('name', 'asc')), (s) => setCustomers(s.docs.map(d => ({ id: d.id, ...d.data() } as Customer))));
-      const unsubVendors = onSnapshot(query(getArtifactCollection('vendors'), orderBy('name', 'asc')), (s) => setVendors(s.docs.map(d => ({ id: d.id, ...d.data() } as Vendor))));
-      const unsubExpenses = onSnapshot(query(getArtifactCollection('expenses'), orderBy('date', 'desc')), (s) => setExpenses(s.docs.map(d => ({ id: d.id, ...d.data() } as ExpenseRecord))));
+      const unsubAcc = onSnapshot(
+        query(getArtifactCollection('accounts'), orderBy('createdAt', 'desc')),
+        (s) => setAccounts(s.docs.map(d => ({ ...d.data(), id: d.id } as Account)))
+      );
+      const unsubTrans = onSnapshot(
+        query(getArtifactCollection('transactions'), orderBy('date', 'desc')),
+        (s) => setTransactions(s.docs.map(d => ({ ...d.data(), id: d.id } as Transaction)))
+      );
+      const unsubShift = onSnapshot(
+        query(getArtifactCollection('shifts'), orderBy('startTime', 'desc')),
+        (s) => setShifts(s.docs.map(d => ({ ...d.data(), id: d.id } as Shift)))
+      );
+      const unsubStaff = onSnapshot(
+        query(getArtifactCollection('staff')),
+        (s) => setStaff(s.docs.map(d => ({ ...d.data(), id: d.id } as StaffMember)))
+      );
+      const unsubHolidays = onSnapshot(
+        query(getArtifactCollection('holidays')),
+        (s) => setHolidays(s.docs.map(d => ({ ...d.data(), id: d.id } as HolidayRecord)))
+      );
+      const unsubCust = onSnapshot(
+        query(getArtifactCollection('customers'), orderBy('name', 'asc')),
+        (s) => setCustomers(s.docs.map(d => ({ ...d.data(), id: d.id } as Customer)))
+      );
+      const unsubVendors = onSnapshot(
+        query(getArtifactCollection('vendors'), orderBy('name', 'asc')),
+        (s) => setVendors(s.docs.map(d => ({ ...d.data(), id: d.id } as Vendor)))
+      );
+      const unsubExpenses = onSnapshot(
+        query(getArtifactCollection('expenses'), orderBy('date', 'desc')),
+        (s) => setExpenses(s.docs.map(d => ({ ...d.data(), id: d.id } as ExpenseRecord)))
+      );
       const unsubFlow = onSnapshot(doc(getArtifactCollection('config'), 'shift_flow'), (d) => {
         if (d.exists()) setFlowConfigState(d.data() as ShiftFlowConfig);
       });
